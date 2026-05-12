@@ -31,12 +31,16 @@ Each mode uses a single Soniox WebSocket session. The mic is ignored in Meeting 
 
 ## 3. Modes & translation configuration
 
-| Mode | Audio source | Soniox `translation` block |
-|---|---|---|
-| **Meeting** | System audio loopback only | `{ "type": "one_way", "target_language": "<user-lang>" }` |
-| **Conversation** | Microphone only | `{ "type": "two_way", "language_a": "<A>", "language_b": "<B>" }` |
+| Mode | Audio source | Soniox `translation` block | Other flags |
+|---|---|---|---|
+| **Meeting** | System audio loopback only | `{ "type": "one_way", "target_language": "<user-lang>" }` | `language_hints: ["<picked-source>"]` (no auto-detect) |
+| **Conversation** | Microphone only | `{ "type": "two_way", "language_a": "<A>", "language_b": "<B>" }` | `enable_speaker_diarization: true` |
 
 The user picks two languages (A, B) in the top bar. In settings the user marks one of A/B as "my language" — this becomes `target_language` in Meeting mode. In Conversation mode both languages are sent to Soniox as a two-way pair regardless of which is "mine".
+
+Source language in Meeting mode is **locked to the picked non-"mine" language** (sent as `language_hints`); we don't enable Soniox `enable_language_identification`. The user explicitly picks the language they are listening to.
+
+Speaker diarization is **on in Conversation mode** so the UI can render colored speaker chips (A/B) per turn; mapped from Soniox `speaker: "1"`/`"2"`. Diarization is **off in Meeting mode** (single remote source).
 
 Language defaults (A, B, and which is "mine") are persisted to a local config file and restored on next launch.
 
@@ -111,6 +115,8 @@ The resampler uses `rubato` (high-quality SincFixedIn) when the device sample ra
   "sample_rate": 16000,
   "num_channels": 1,
   "enable_endpoint_detection": true,
+  "enable_speaker_diarization": true,
+  "language_hints": ["en"],
   "translation": {
     "type": "two_way",
     "language_a": "en",
@@ -151,23 +157,40 @@ On WebSocket error or close-before-finish: exponential backoff (250 ms → 500 �
 ### 7.1 Main window (~900×600, resizable)
 
 - **Top bar:** Mode toggle (Meeting / Conversation) • Language A picker • Language B picker • Audio source picker (mode-aware: mic devices in Conversation, system audio sources in Meeting) • Start/Stop • Overlay toggle • Settings.
-- **Body:** two-column live transcript (Original | Translation), auto-scroll, sticky-to-bottom. Non-final tokens render as a lighter "ghost" line that replaces in place.
-- **Left sidebar:** session history list (date, duration, languages, first-line preview) + FTS5 search box.
+- **Body:** two-column live transcript (Original | Translation), auto-scroll, sticky-to-bottom. Non-final tokens render as a lighter "ghost" line with a blinking block caret that replaces in place. Each line: timestamp (mono, dim) + text; in Conversation mode each line is prefixed with a colored A/B speaker chip and language code.
+- **Left sidebar (240 px):** search box (⌘K) + session history. Each item shows date/time, duration, language pair with arrow, mode tag (uppercase), and a 2-line preview; active session shows a small REC dot.
+- **Status bar:** see §7.4 fields.
 
-### 7.2 Overlay window (frameless, always-on-top, ~600×80, draggable)
+### 7.2 Overlay window (frameless, always-on-top, draggable)
 
+- Default: **600 × ~190 px** (5-line variant); also a compact **600 × ~110 px** (3-line) variant the user can toggle.
 - Bottom-center of the primary display by default; remembers last position per display.
-- Renders the last 1–2 lines of translated text; older lines fade out.
-- Click-through everywhere except a small handle on the top edge for drag/close.
+- Renders a **5-line rolling buffer** of translated text. Newest line is largest (17 px, semibold) and shows the streaming caret; older lines progressively smaller (14 px) and fade toward the top (opacity ramped from ~0.35 oldest → 1.0 newest).
+- **Click-through model:** the entire window is click-through by default (`ignoresMouseEvents` / `WS_EX_TRANSPARENT`). When the cursor enters the window's bounding rect, a thin control strip (~24 px tall) reveals on the top edge with: state dot + state label (`EN → VI` / `RECONNECTING` / `IDLE`), center drag region, and close button. While the strip is visible, the window briefly captures mouse events so the user can drag or close. On `mouseLeave` (or after ~1.5 s of no movement over the strip), it auto-hides and the window returns to fully click-through. No always-visible buttons.
+- States: `active`, `reconnecting` (shows backoff attempt number and retry-in-N s), `idle` (shows hotkey hint).
 - Synced with the main window via the Tauri event bus (Rust core emits a single `transcript:update` event consumed by both windows).
 
-### 7.3 Settings sheet
+### 7.3 Settings sheet (560 × 680)
 
-- Soniox API key (paste once, stored in OS keychain, never re-shown; "Replace key" button).
-- Default languages A and B (persisted; restored next launch).
-- Default audio source per mode.
-- Global hotkey for Start/Stop (default: Ctrl/Cmd+Shift+V).
-- Theme (light / dark / system).
+Sections, top to bottom:
+1. **Soniox API key** — masked field, "Last updated" timestamp, "Replace" button. Paste-once, stored in OS keychain.
+2. **Default languages** — two side-by-side `LangCard` components (code + name + "Language A/B"); click one to mark it `MY LANGUAGE` (drives `target_language` in Meeting mode).
+3. **Default audio source per mode** — one row for Meeting (system output picker), one for Conversation (microphone picker).
+4. **Global hotkey** — `Ctrl + Shift + V` default.
+5. **Appearance** — segmented control: Light / Dark / System.
+
+### 7.4 Visual design
+
+Prototype reference lives in the repo at `design/v1/` — read `design/v1/chat-transcript.md` for design intent, then the JSX files for exact tokens, spacing, and component composition.
+
+- **Typography:** Geist + Geist Mono (Google Fonts).
+- **Palette:** dark cool-neutral oklch (`bg: oklch(0.16 0.005 250)` … `surface3: oklch(0.28 0.008 250)`); single cyan accent `oklch(0.80 0.13 205)`; REC `oklch(0.72 0.20 25)`; warn `oklch(0.82 0.14 80)`; ok `oklch(0.78 0.13 155)`.
+- **Main window:** 920 × 600. Toolbar (48 px) • content row (sidebar 240 px + transcript) • status bar (28 px, mono 10.5 px).
+- **Status bar fields** (with hide-priority for narrow widths, dropped right-to-left as space shrinks): REC dot + elapsed • level meter (14 bars) + dB • Soniox model (`SONIOX · stt-rt-v4`) • latency ms or `ws idle` • translation block summary (`one_way → VI` / `two_way · EN ⇄ JA`) • audio format (`16 kHz · mono · s16le`).
+- **Latency** is a **client-derived metric**: median ms between an audio chunk send and the first `is_final: true` token covering that chunk's time range. Not a Soniox API field.
+- **Lang chip badge in toolbar** uses the label `MY LANGUAGE` (matches the settings sheet), not `YOU` — single consistent term across the app.
+- **Hotkey:** `Ctrl + Shift + V` on both platforms (no platform-specific binding).
+- **App icon basis:** cyan rounded-square with white sound-wave glyph (see `voxtide.jsx` `Toolbar` wordmark).
 
 ## 8. Data model (SQLite)
 
@@ -233,11 +256,13 @@ Only `is_final: true` tokens are persisted. Non-final ghost text lives only in m
 - Translating the user's own voice during Meeting mode.
 - Custom vocabulary / context biasing (Soniox supports it via `context` field; trivial follow-up).
 - Cloud sync.
-- Multi-speaker diarization in Conversation mode (Soniox `enable_speaker_diarization: true` is one flag away when wanted).
 - Code-signing & notarization workflows.
+- Light theme (segmented control ships but only dark theme rendered; light theme is a follow-up).
+- Sidebar history grouping / virtualization at >100 sessions (flat list ships in v1).
 
 ## 12. Open questions for follow-up
 
 - Soniox session duration / per-key rate limits — to confirm when implementing reconnect logic.
 - Exact macOS version split between Core Audio taps and ScreenCaptureKit fallback (some 14.x point releases shipped tap fixes).
 - Whether to expose Soniox `enable_endpoint_detection` as a user setting or keep it hard-on.
+- App icon system: 1024 marketing icon, 32 / 16 list icons, and macOS menu-bar monochrome variant — design the 16 px legibility before commissioning the full set.

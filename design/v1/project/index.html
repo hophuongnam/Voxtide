@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Voxtide — UI sketch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  body { font-family: "Geist", -apple-system, BlinkMacSystemFont, sans-serif; }
+  @keyframes vt-blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+  @keyframes vt-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 oklch(0.72 0.20 25 / 0.4); }
+    50%      { box-shadow: 0 0 0 6px oklch(0.72 0.20 25 / 0); }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="voxtide.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+function App() {
+  const { DesignCanvas, DCSection, DCArtboard, DCPostIt } = window;
+  return (
+    <DesignCanvas
+      title="Voxtide — UI sketch"
+      subtitle="Real-time speech translation · Tauri 2 desktop app · v1 spec, May 12 2026"
+    >
+      <DCSection
+        id="main"
+        title="Main window"
+        subtitle="900×600 — top bar · two-column transcript · session history sidebar · status bar"
+      >
+        <DCArtboard id="meeting-active" label="A · Meeting mode — active session" width={960} height={680}>
+          <Desktop height={680}>
+            <ZoomBackdrop />
+            <div style={{ position: 'relative', zIndex: 2 }}>
+              <MainWindow initialMode="meeting" initialRecording={true} />
+            </div>
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="conv-active" label="B · Conversation mode — two-way" width={960} height={680}>
+          <Desktop height={680}>
+            <div style={{ position: 'relative', zIndex: 2 }}>
+              <MainWindow initialMode="conversation" initialRecording={true} />
+            </div>
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="idle" label="C · Idle — pre-session" width={960} height={680}>
+          <Desktop height={680}>
+            <div style={{ position: 'relative', zIndex: 2 }}>
+              <MainWindow initialMode="meeting" initialRecording={false} empty={true} />
+            </div>
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="onboarding" label="D · First launch — no API key" width={960} height={680}>
+          <Desktop height={680}>
+            <div style={{ position: 'relative', zIndex: 2 }}>
+              <MainWindow initialMode="meeting" initialRecording={false} onboarding={true} />
+            </div>
+          </Desktop>
+        </DCArtboard>
+
+        <DCPostIt width={220}>
+          Toggle <b>Meeting / Conversation</b> in the toolbar of any artboard — the
+          audio source, language pair, Soniox <code>translation</code> block, and status-bar
+          summary all flip in sync.
+        </DCPostIt>
+      </DCSection>
+
+      <DCSection
+        id="overlay"
+        title="Overlay window"
+        subtitle="Frameless · always-on-top · click-through except drag handle · synced via the Tauri event bus"
+      >
+        <DCArtboard id="ov-active" label="Active · 5-line rolling buffer" width={720} height={340}>
+          <Desktop height={340} style={{
+            background: 'linear-gradient(140deg, oklch(0.45 0.06 220), oklch(0.30 0.04 260))',
+          }}>
+            <OverlayWindow state="active" lines={5} />
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="ov-3line" label="3-line · compact" width={720} height={260}>
+          <Desktop height={260} style={{
+            background: 'linear-gradient(140deg, oklch(0.45 0.06 220), oklch(0.30 0.04 260))',
+          }}>
+            <OverlayWindow state="active" lines={3} />
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="ov-reconnect" label="Reconnecting · backoff" width={720} height={260}>
+          <Desktop height={260} style={{
+            background: 'linear-gradient(140deg, oklch(0.45 0.06 220), oklch(0.30 0.04 260))',
+          }}>
+            <OverlayWindow state="reconnecting" lines={5} />
+          </Desktop>
+        </DCArtboard>
+
+        <DCArtboard id="ov-idle" label="Idle · not started" width={720} height={260}>
+          <Desktop height={260} style={{
+            background: 'linear-gradient(140deg, oklch(0.45 0.06 220), oklch(0.30 0.04 260))',
+          }}>
+            <OverlayWindow state="idle" lines={5} />
+          </Desktop>
+        </DCArtboard>
+
+        <DCPostIt width={220}>
+          Shows up to 5 lines of translated text in a rolling buffer — older lines
+          fade toward the top. Default position: bottom-center of the primary display.
+          Top drag handle is the only non-click-through region.
+        </DCPostIt>
+      </DCSection>
+
+      <DCSection
+        id="settings"
+        title="Settings sheet"
+        subtitle="API key · default languages · audio sources · global hotkey · theme"
+      >
+        <DCArtboard id="settings-sheet" label="Settings — dark" width={620} height={740}>
+          <Desktop height={740} style={{
+            background: 'linear-gradient(140deg, oklch(0.30 0.04 230), oklch(0.18 0.02 280))',
+          }}>
+            <SettingsSheet />
+          </Desktop>
+        </DCArtboard>
+
+        <DCPostIt width={220}>
+          The language marked <b>MY LANGUAGE</b> becomes Soniox's
+          <code> target_language</code> in Meeting mode. Both languages are sent as a
+          two-way pair in Conversation mode regardless.
+        </DCPostIt>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
