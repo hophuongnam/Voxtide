@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Voxtide — UI sketch v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  body { font-family: "Geist", -apple-system, BlinkMacSystemFont, sans-serif; }
+  @keyframes vt-blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+  @keyframes vt-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 oklch(0.72 0.20 25 / 0.4); }
+    50%      { box-shadow: 0 0 0 6px oklch(0.72 0.20 25 / 0); }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="voxtide.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+(function(){
+const W = window;
+const DCSection = W.DCSection, DCArtboard = W.DCArtboard, DCPostIt = W.DCPostIt;
+const MainWindow = W.MainWindow, OverlayWindow = W.OverlayWindow, SettingsSheet = W.SettingsSheet;
+const Desktop = W.Desktop, Themed = W.Themed;
+const AppIconSquircle = W.AppIconSquircle, AppIconV = W.AppIconV, AppIconMenuBar = W.AppIconMenuBar;
+const StatusBar = W.StatusBar, V = W.V;
+
+// ── helpers ────────────────────────────────────────────────────────────────
+function Stage({ children, height = 680, theme = 'dark', style = {} }) {
+  return (
+    <Themed theme={theme}>
+      <Desktop height={height} theme={theme} style={style}>
+        <div style={{ position: 'relative', zIndex: 2 }}>{children}</div>
+      </Desktop>
+    </Themed>
+  );
+}
+
+// Wraps a status-bar in a faux window-bottom so it reads as a real chrome strip.
+function StatusBarStrip({ width, recording = true, mode = 'meeting', label }) {
+  return (
+    <div style={{
+      width, borderRadius: 10, overflow: 'hidden',
+      border: `0.5px solid ${V.border}`, background: V.bg,
+      boxShadow: V.winShadow, fontFamily: V.font, color: V.text,
+    }}>
+      <div style={{
+        height: 22, background: V.bg, borderBottom: `0.5px solid ${V.border}`,
+        display: 'flex', alignItems: 'center', padding: '0 10px', gap: 8,
+      }}>
+        <div style={{
+          display: 'flex', gap: 6,
+        }}>
+          {['#ff5f57', '#febc2e', '#28c840'].map(c => (
+            <div key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c }} />
+          ))}
+        </div>
+        <span style={{ fontSize: 10.5, color: V.subtle, fontFamily: V.mono, letterSpacing: 0.4 }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ height: 60, background: V.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: V.dim, fontSize: 11 }}>
+        ⋯ transcript area ⋯
+      </div>
+      <StatusBar recording={recording} mode={mode} width={width} />
+    </div>
+  );
+}
+
+// ── App ────────────────────────────────────────────────────────────────────
+function App() {
+  return (
+    <W.DesignCanvas
+      title="Voxtide — UI sketch v2"
+      subtitle="v2 revisions · speaker chips · light theme · hover overlay · grouped sidebar · narrow status · icon system"
+    >
+
+      {/* ── 1. Meeting with speaker chips (updated) ───────────────────── */}
+      <DCSection id="meeting-chips"
+        title="1 · Meeting mode — speaker chips on every line"
+        subtitle="Diarized multi-participant call. Chips cycle A=cyan · B=red · C=green · D=amber.">
+        <DCArtboard id="meeting-active-v2" label="Meeting — multi-speaker" width={960} height={680}>
+          <Stage>
+            <MainWindow initialMode="meeting" initialRecording={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCArtboard id="conv-chips" label="Conversation — A ⇄ B" width={960} height={680}>
+          <Stage>
+            <MainWindow initialMode="conversation" initialRecording={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCPostIt width={220}>
+          Every transcript line carries a <b>speaker chip + language code</b> in v2 —
+          so a Zoom call with three remote voices renders as visually distinct A / B / C
+          turns instead of an undifferentiated wall of text.
+        </DCPostIt>
+      </DCSection>
+
+      {/* ── 2. Light theme — main window ──────────────────────────────── */}
+      <DCSection id="light-main"
+        title="2 · Light theme — main window"
+        subtitle="Neutrals inverted; cyan accent lightness reduced to oklch(0.55 0.16 205) so it reads on a light background.">
+        <DCArtboard id="light-meeting" label="A · Meeting · light" width={960} height={680}>
+          <Stage theme="light">
+            <MainWindow initialMode="meeting" initialRecording={true} />
+          </Stage>
+        </DCArtboard>
+        <DCArtboard id="light-conv" label="B · Conversation · light" width={960} height={680}>
+          <Stage theme="light">
+            <MainWindow initialMode="conversation" initialRecording={true} />
+          </Stage>
+        </DCArtboard>
+        <DCArtboard id="light-idle" label="C · Idle · light" width={960} height={680}>
+          <Stage theme="light">
+            <MainWindow initialMode="meeting" initialRecording={false} empty={true} />
+          </Stage>
+        </DCArtboard>
+        <DCArtboard id="light-onboarding" label="D · Onboarding · light" width={960} height={680}>
+          <Stage theme="light">
+            <MainWindow initialMode="meeting" initialRecording={false} onboarding={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCPostIt width={240}>
+          <b>Light tokens</b><br />
+          bg <code>oklch(0.985 0.003 250)</code><br />
+          surface <code>oklch(0.95 0.005 250)</code><br />
+          surface2 <code>oklch(0.92 0.006 250)</code><br />
+          border <code>oklch(0.85 0.008 250)</code><br />
+          text <code>oklch(0.20 0.005 250)</code><br />
+          muted <code>oklch(0.42 0.005 250)</code><br />
+          accent <code>oklch(0.55 0.16 205)</code><br />
+          rec <code>oklch(0.55 0.20 25)</code>
+        </DCPostIt>
+      </DCSection>
+
+      {/* ── 3. Light theme — overlay + settings ───────────────────────── */}
+      <DCSection id="light-aux"
+        title="3 · Light theme — overlay + settings"
+        subtitle="Frosted-white overlay; same cyan accent on the settings sheet.">
+        <DCArtboard id="light-overlay" label="Overlay · active · light" width={720} height={250}>
+          <Stage theme="light" height={250}>
+            <OverlayWindow state="active" lines={5} hover={false} />
+          </Stage>
+        </DCArtboard>
+        <DCArtboard id="light-settings" label="Settings · light" width={620} height={740}>
+          <Stage theme="light" height={740}>
+            <SettingsSheet />
+          </Stage>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ── 4. Overlay hover-reveal ───────────────────────────────────── */}
+      <DCSection id="overlay-hover"
+        title="4 · Overlay — hover-reveal control strip"
+        subtitle="No permanent chrome. A 24 px strip slides in over the top edge on hover, fades after 1.5 s of no movement.">
+        <DCArtboard id="ov-default" label="Default · no chrome · click-through" width={720} height={260}>
+          <Stage height={260}>
+            <OverlayWindow state="active" lines={5} hover={false} />
+          </Stage>
+        </DCArtboard>
+
+        <DCArtboard id="ov-hover" label="Hover · strip visible" width={720} height={260}>
+          <Stage height={260}>
+            <OverlayWindow state="active" lines={5} hover={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCArtboard id="ov-hover-recon" label="Hover · reconnecting" width={720} height={260}>
+          <Stage height={260}>
+            <OverlayWindow state="reconnecting" lines={5} hover={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCArtboard id="ov-hover-idle" label="Hover · idle" width={720} height={260}>
+          <Stage height={260}>
+            <OverlayWindow state="idle" lines={5} hover={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCPostIt width={240}>
+          <b>Strip contents</b> · state dot · state label (<code>EN → VI</code> / <code>RECONNECTING</code> / <code>IDLE</code>)
+          · drag region (grab cursor) · close X.<br /><br />
+          <b>No pin button</b> — always-on-top is permanent, not a toggle.
+        </DCPostIt>
+      </DCSection>
+
+      {/* ── 5. Sidebar date grouping ──────────────────────────────────── */}
+      <DCSection id="sidebar-groups"
+        title="5 · Sidebar — date-grouped history"
+        subtitle="Sticky group headers (Today · Yesterday · This week · Earlier) — long history stays scannable.">
+        <DCArtboard id="sidebar-detail" label="Full sidebar — 12 sessions across 4 groups" width={280} height={680}>
+          <Themed>
+            <div style={{
+              width: 240, height: 680, display: 'flex',
+              border: `0.5px solid var(--vt-border)`, borderRadius: 10, overflow: 'hidden',
+              boxShadow: 'var(--vt-window-shadow)', background: 'var(--vt-bg-deep)',
+            }}>
+              {/* @ts-ignore */}
+              {React.createElement(window.MainWindow.prototype ? 'div' : 'div')}
+              <SidebarOnly />
+            </div>
+          </Themed>
+        </DCArtboard>
+
+        <DCArtboard id="sidebar-in-context" label="In context — main window" width={960} height={680}>
+          <Stage>
+            <MainWindow initialMode="meeting" initialRecording={true} />
+          </Stage>
+        </DCArtboard>
+
+        <DCPostIt width={240}>
+          Headers: mono 9 px uppercase, letter-spacing 0.6, <code>subtle</code> color,
+          stuck to the top of the scroll container with a fade-to-bgDeep gradient so items
+          slide cleanly underneath.
+        </DCPostIt>
+      </DCSection>
+
+      {/* ── 6. App icon system ────────────────────────────────────────── */}
+      <DCSection id="icons"
+        title="6 · App icon system"
+        subtitle="Squircle + sound-wave glyph for 32 px and up; V-mark fallback for 16 px; monochrome silhouette for the menu bar.">
+        <DCArtboard id="icon-1024" label="1024 · marketing" width={600} height={600}>
+          <div style={{
+            width: 600, height: 600, background: '#f6f4ef',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundImage: 'radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}>
+            <div style={{ transform: 'scale(0.5)' }}>
+              <AppIconSquircle size={1024} bars={5} />
+            </div>
+          </div>
+        </DCArtboard>
+
+        <DCArtboard id="icon-32" label="32 px list icon" width={260} height={180}>
+          <IconStage>
+            <IconPair size={32} bars={3} />
+          </IconStage>
+        </DCArtboard>
+
+        <DCArtboard id="icon-16" label="16 px · V-mark fallback" width={260} height={180}>
+          <IconStage>
+            <div style={{ display: 'flex', gap: 32, alignItems: 'flex-end' }}>
+              <IconBlock label="1×">
+                <AppIconV size={16} />
+              </IconBlock>
+              <IconBlock label="2× (32 px target)">
+                <AppIconV size={32} />
+              </IconBlock>
+            </div>
+          </IconStage>
+        </DCArtboard>
+
+        <DCArtboard id="icon-menubar" label="22 px · macOS menu bar (template)" width={420} height={180}>
+          <IconStage>
+            <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+              <MenuBarChrome tint="#1c1c1e">
+                <div style={{ color: '#fff' }}><AppIconMenuBar size={18} /></div>
+              </MenuBarChrome>
+              <MenuBarChrome tint="#e6e6e6">
+                <div style={{ color: '#1c1c1e' }}><AppIconMenuBar size={18} /></div>
+              </MenuBarChrome>
+              <IconBlock label="2×">
+                <div style={{ color: '#1c1c1e' }}><AppIconMenuBar size={36} /></div>
+              </IconBlock>
+            </div>
+          </IconStage>
+        </DCArtboard>
+
+        <DCPostIt width={240}>
+          <b>Glyph rule of thumb</b>: 5-bar sound wave reads down to ~32 px.
+          At 16 px the bars alias into a smear — switch to the single
+          <b> V mark</b> (two intersecting wave-curves). Menu bar uses the V
+          silhouette as a template image so the system tints it.
+        </DCPostIt>
+      </DCSection>
+
+      {/* ── 7. Status bar narrow widths ───────────────────────────────── */}
+      <DCSection id="status-widths"
+        title="7 · Status bar — narrow-width behavior"
+        subtitle="Field-hide priority. REC · elapsed · meter are always visible; everything else collapses right-to-left.">
+        <DCArtboard id="status-stack" label="Four widths · stacked" width={1020} height={460}>
+          <Themed>
+            <div style={{
+              width: 1020, padding: 24,
+              background: 'var(--vt-bg)', color: 'var(--vt-text)',
+              display: 'flex', flexDirection: 'column', gap: 16,
+              fontFamily: V.font,
+            }}>
+              <WidthRow w={920} label="920 px — full" />
+              <WidthRow w={720} label="720 px — narrow · hides audio format" />
+              <WidthRow w={600} label="600 px — very narrow · also hides latency" />
+              <WidthRow w={480} label="480 px — cramped · also hides Soniox model" />
+            </div>
+          </Themed>
+        </DCArtboard>
+
+        <DCPostIt width={240}>
+          <b>Hide priority (right → left)</b>:<br />
+          1. audio format<br />
+          2. latency<br />
+          3. Soniox model<br />
+          4. translation summary<br /><br />
+          <b>Never hide</b>: REC dot · elapsed · level meter.
+        </DCPostIt>
+      </DCSection>
+
+    </W.DesignCanvas>
+  );
+}
+
+// ── small support components ──────────────────────────────────────────────
+
+function WidthRow({ w, label }) {
+  return (
+    <div>
+      <div style={{
+        fontFamily: V.mono, fontSize: 10, letterSpacing: 0.5,
+        color: V.subtle, textTransform: 'uppercase', marginBottom: 6,
+      }}>{label}</div>
+      <StatusBarStrip width={w} label={`Voxtide · ${w}px`} />
+    </div>
+  );
+}
+
+function SidebarOnly() {
+  // Reuses Sidebar — but Sidebar is internal. So we recreate the look by
+  // mounting a MainWindow and clipping. Cleaner: just render MainWindow.
+  return (
+    <div style={{
+      width: 240, height: 680, overflow: 'hidden',
+    }}>
+      <div style={{
+        width: 920, height: 600, transform: 'scale(1)', transformOrigin: 'top left',
+      }}>
+        <MainWindow initialMode="meeting" initialRecording={true} />
+      </div>
+    </div>
+  );
+}
+
+function IconStage({ children }) {
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: '#f6f4ef',
+      backgroundImage: 'radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px)',
+      backgroundSize: '14px 14px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>{children}</div>
+  );
+}
+
+function IconPair({ size, bars }) {
+  return (
+    <div style={{ display: 'flex', gap: 32, alignItems: 'flex-end' }}>
+      <IconBlock label={`1× (${size} px)`}>
+        <AppIconSquircle size={size} bars={bars} />
+      </IconBlock>
+      <IconBlock label={`2× (${size * 2} px)`}>
+        <AppIconSquircle size={size * 2} bars={bars} />
+      </IconBlock>
+    </div>
+  );
+}
+
+function IconBlock({ label, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      {children}
+      <div style={{
+        fontFamily: V.mono, fontSize: 9.5, color: '#666', letterSpacing: 0.4,
+        textTransform: 'uppercase',
+      }}>{label}</div>
+    </div>
+  );
+}
+
+function MenuBarChrome({ tint, children }) {
+  // miniature menu bar strip showing the icon in situ
+  return (
+    <div style={{
+      width: 220, height: 22, borderRadius: 6,
+      background: tint, display: 'flex', alignItems: 'center', padding: '0 8px',
+      gap: 8, boxShadow: 'inset 0 -0.5px 0 rgba(0,0,0,0.2)',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 5, opacity: 0.6,
+        color: tint === '#1c1c1e' ? '#fff' : '#1c1c1e',
+        fontSize: 10, fontFamily: V.mono,
+      }}>
+        <span>􀋮</span><span>􀊪</span><span>􀀀</span>
+      </div>
+      <div style={{ flex: 1 }} />
+      {children}
+      <div style={{
+        fontSize: 10, fontFamily: V.mono,
+        color: tint === '#1c1c1e' ? '#fff' : '#1c1c1e',
+        opacity: 0.7,
+      }}>14:22</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>

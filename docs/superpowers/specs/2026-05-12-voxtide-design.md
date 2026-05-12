@@ -185,16 +185,41 @@ Sections, top to bottom:
 
 ### 7.4 Visual design
 
-Prototype reference lives in the repo at `design/v1/` — read `design/v1/chat-transcript.md` for design intent, then the JSX files for exact tokens, spacing, and component composition.
+Prototype reference lives at `design/v2/` (current; reads the v1 brief at `design/v2/BRIEF.md`, the chat transcript, and the JSX). `design/v1/` is kept for history but superseded.
 
 - **Typography:** Geist + Geist Mono (Google Fonts).
-- **Palette:** dark cool-neutral oklch (`bg: oklch(0.16 0.005 250)` … `surface3: oklch(0.28 0.008 250)`); single cyan accent `oklch(0.80 0.13 205)`; REC `oklch(0.72 0.20 25)`; warn `oklch(0.82 0.14 80)`; ok `oklch(0.78 0.13 155)`.
+- **Theming** is via CSS custom properties; a `.vt-theme-dark` / `.vt-theme-light` class on a wrapper switches the entire palette. Tokens live in `design/v2/project/voxtide.jsx` (`injectVoxtideTheme`).
+
+**Dark palette (`vt-theme-dark`, abbreviated):**
+`bg: oklch(0.16 0.005 250)` · `surface: oklch(0.20 0.006 250)` · `border: oklch(0.30 0.008 250)` · `text: oklch(0.97 0.003 250)` · `muted: oklch(0.70 0.005 250)` · `accent: oklch(0.80 0.13 205)` · `rec: oklch(0.72 0.20 25)` · `warn: oklch(0.82 0.14 80)` · `ok: oklch(0.78 0.13 155)`.
+
+**Light palette (`vt-theme-light`, abbreviated):**
+`bg: oklch(0.985 0.003 250)` · `surface: oklch(0.95 0.005 250)` · `border: oklch(0.85 0.008 250)` · `text: oklch(0.20 0.005 250)` · `muted: oklch(0.42 0.005 250)` · `accent: oklch(0.55 0.16 205)` · `rec: oklch(0.55 0.20 25)` · `warn: oklch(0.65 0.16 80)` · `ok: oklch(0.55 0.14 155)`.
+
+**Speaker chip colors** (theme-aware via `--vt-speaker-{a,b,c,d}` tokens, with `--vt-speaker-ink` for the letter): A=cyan, B=red, C=green, D=amber. Cycle modulo 4.
+
 - **Main window:** 920 × 600. Toolbar (48 px) • content row (sidebar 240 px + transcript) • status bar (28 px, mono 10.5 px).
-- **Status bar fields** (with hide-priority for narrow widths, dropped right-to-left as space shrinks): REC dot + elapsed • level meter (14 bars) + dB • Soniox model (`SONIOX · stt-rt-v4`) • latency ms or `ws idle` • translation block summary (`one_way → VI` / `two_way · EN ⇄ JA`) • audio format (`16 kHz · mono · s16le`).
+- **Status bar fields** (hide priority, right-to-left): audio format (hides below 900 px) → latency (hides below 700 px) → Soniox model (hides below 580 px) → translation summary (hides below 480 px). REC dot + elapsed + level meter never hide.
 - **Latency** is a **client-derived metric**: median ms between an audio chunk send and the first `is_final: true` token covering that chunk's time range. Not a Soniox API field.
-- **Lang chip badge in toolbar** uses the label `MY LANGUAGE` (matches the settings sheet), not `YOU` — single consistent term across the app.
-- **Hotkey:** `Ctrl + Shift + V` on both platforms (no platform-specific binding).
-- **App icon basis:** cyan rounded-square with white sound-wave glyph (see `voxtide.jsx` `Toolbar` wordmark).
+- **Toolbar lang chip badge** uses the short label `YOU` on the chip; the settings sheet `LangCard` uses the full `MY LANGUAGE` tag. Different label-lengths for different surfaces; meaning is identical.
+- **Hotkey:** `Ctrl + Shift + V` on both platforms.
+
+### 7.5 Sidebar — date-grouped history
+
+Sticky group headers separate sessions by recency: `Today` · `Yesterday` · `This week` · `Earlier`. Header style: mono 9 px, uppercase, letter-spacing 0.6, color `subtle`, with a linear-gradient fade from `bg-deep` so items slide cleanly underneath the sticky header as the user scrolls.
+
+### 7.6 App icon system
+
+Four variants, all built from a cyan oklch gradient (`linear-gradient(155deg, oklch(0.78 0.14 200), oklch(0.50 0.16 220))`):
+
+| Variant | Use | Shape |
+|---|---|---|
+| **1024 marketing** | App Store, marketing, Finder Get-Info | 22 %-radius squircle, 5-bar `WaveGlyph` at 55 % of icon size, white, inner highlight + drop shadow |
+| **32 px list** | Finder list view, app switcher (small) | Same squircle, 3-bar `WaveGlyph` (5-bar aliases at this size) |
+| **16 px V-mark fallback** | Window-title icon, Dock badge | Squircle with a single white `V` curve path (one stroke); the wave bars smear at 16 px |
+| **Menu-bar template (22 px)** | macOS menu bar | Just the `V` silhouette as `currentColor` SVG, no square background — system tints it |
+
+Implementations are in `design/v2/project/voxtide.jsx` (`AppIconSquircle`, `AppIconV`, `AppIconMenuBar`). Ship as `.icns` (macOS) and `.ico` (Windows) generated from a single 1024 PNG source.
 
 ## 8. Data model (SQLite)
 
@@ -261,12 +286,10 @@ Only `is_final: true` tokens are persisted. Non-final ghost text lives only in m
 - Custom vocabulary / context biasing (Soniox supports it via `context` field; trivial follow-up).
 - Cloud sync.
 - Code-signing & notarization workflows.
-- Light theme (segmented control ships but only dark theme rendered; light theme is a follow-up).
-- Sidebar history grouping / virtualization at >100 sessions (flat list ships in v1).
+- Sidebar history **virtualization** (date-grouping ships in v1; virtualization is the >1000-session follow-up).
 
 ## 12. Open questions for follow-up
 
 - Soniox session duration / per-key rate limits — to confirm when implementing reconnect logic.
 - Exact macOS version split between Core Audio taps and ScreenCaptureKit fallback (some 14.x point releases shipped tap fixes).
 - Whether to expose Soniox `enable_endpoint_detection` as a user setting or keep it hard-on.
-- App icon system: 1024 marketing icon, 32 / 16 list icons, and macOS menu-bar monochrome variant — design the 16 px legibility before commissioning the full set.
