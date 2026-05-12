@@ -31,16 +31,20 @@ Each mode uses a single Soniox WebSocket session. The mic is ignored in Meeting 
 
 ## 3. Modes & translation configuration
 
+Both modes set `enable_speaker_diarization: true`.
+
 | Mode | Audio source | Soniox `translation` block | Other flags |
 |---|---|---|---|
-| **Meeting** | System audio loopback only | `{ "type": "one_way", "target_language": "<user-lang>" }` | `language_hints: ["<picked-source>"]` (no auto-detect) |
+| **Meeting** | System audio loopback only | `{ "type": "one_way", "target_language": "<user-lang>" }` | `language_hints: ["<picked-source>"]`, `enable_speaker_diarization: true` |
 | **Conversation** | Microphone only | `{ "type": "two_way", "language_a": "<A>", "language_b": "<B>" }` | `enable_speaker_diarization: true` |
 
 The user picks two languages (A, B) in the top bar. In settings the user marks one of A/B as "my language" — this becomes `target_language` in Meeting mode. In Conversation mode both languages are sent to Soniox as a two-way pair regardless of which is "mine".
 
 Source language in Meeting mode is **locked to the picked non-"mine" language** (sent as `language_hints`); we don't enable Soniox `enable_language_identification`. The user explicitly picks the language they are listening to.
 
-Speaker diarization is **on in Conversation mode** so the UI can render colored speaker chips (A/B) per turn; mapped from Soniox `speaker: "1"`/`"2"`. Diarization is **off in Meeting mode** (single remote source).
+Speaker diarization is **on in both modes** so transcript lines can be tagged with colored speaker chips. Soniox emits `speaker: "1"`, `"2"`, …; the client maps the first-heard speaker to chip `A`, the second to `B`, etc., and persists the mapping per session.
+
+In Meeting mode this surfaces multi-participant calls (Zoom with several remote speakers); in Conversation mode it separates the two sides of the dialogue across a single mic.
 
 Language defaults (A, B, and which is "mine") are persisted to a local config file and restored on next launch.
 
@@ -157,7 +161,7 @@ On WebSocket error or close-before-finish: exponential backoff (250 ms → 500 �
 ### 7.1 Main window (~900×600, resizable)
 
 - **Top bar:** Mode toggle (Meeting / Conversation) • Language A picker • Language B picker • Audio source picker (mode-aware: mic devices in Conversation, system audio sources in Meeting) • Start/Stop • Overlay toggle • Settings.
-- **Body:** two-column live transcript (Original | Translation), auto-scroll, sticky-to-bottom. Non-final tokens render as a lighter "ghost" line with a blinking block caret that replaces in place. Each line: timestamp (mono, dim) + text; in Conversation mode each line is prefixed with a colored A/B speaker chip and language code.
+- **Body:** two-column live transcript (Original | Translation), auto-scroll, sticky-to-bottom. Non-final tokens render as a lighter "ghost" line with a blinking block caret that replaces in place. Each line: timestamp (mono, dim) + colored speaker chip (A/B/C/…) + text. Chips appear in both Meeting and Conversation modes. The design prototype in `design/v1/` shows chips on Conversation only — implementation must extend them to Meeting as well.
 - **Left sidebar (240 px):** search box (⌘K) + session history. Each item shows date/time, duration, language pair with arrow, mode tag (uppercase), and a 2-line preview; active session shows a small REC dot.
 - **Status bar:** see §7.4 fields.
 
