@@ -24,19 +24,21 @@ impl WavSource {
         let mut reader = hound::WavReader::open(path)
             .map_err(|e| Error::Audio(format!("wav open: {e}")))?;
         let spec = reader.spec();
-        let samples: Vec<f32> = match spec.sample_format {
+        let mut samples: Vec<f32> = match spec.sample_format {
             hound::SampleFormat::Int => {
                 let max = ((1i64 << (spec.bits_per_sample - 1)) - 1) as f32;
                 reader.samples::<i32>()
                     .map(|s| s.map(|v| v as f32 / max).map_err(|e| Error::Audio(format!("wav read: {e}"))))
                     .collect::<Result<_>>()?
             }
+            // IEEE_FLOAT WAVs are standardised in [-1.0, 1.0]; no normalisation needed.
             hound::SampleFormat::Float => {
                 reader.samples::<f32>()
                     .map(|s| s.map_err(|e| Error::Audio(format!("wav read: {e}"))))
                     .collect::<Result<_>>()?
             }
         };
+        samples.shrink_to_fit();
         let label = path.file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "wav".into());
@@ -79,7 +81,10 @@ impl AudioSource for WavSource {
             let mut cursor = 0usize;
             let interval = Duration::from_millis(CHUNK_MS as u64);
             loop {
-                if stop_rx.try_recv().is_ok() { break; }
+                match stop_rx.try_recv() {
+                    Ok(_) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                }
                 if cursor >= all.len() { break; }
                 let end = (cursor + frames_per_tick).min(all.len());
                 let processed = match resampler.process(&all[cursor..end]) {
@@ -93,6 +98,8 @@ impl AudioSource for WavSource {
                 cursor = end;
                 if realtime { tokio::time::sleep(interval).await; }
             }
+            // Any sub-frame remainder in chunker.buf is intentionally discarded;
+            // callers must not rely on receiving the final partial frame.
         });
 
         Ok(AudioStream { rx, stop: stop_tx })
