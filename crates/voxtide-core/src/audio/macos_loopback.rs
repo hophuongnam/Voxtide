@@ -27,15 +27,13 @@ pub enum CaptureStrategy {
 
 /// Return the capture strategy that should be used on the current OS.
 ///
-/// v1 always returns [`CaptureStrategy::ScreenCaptureKit`].  The version-probe
-/// command is invoked (and its output discarded) so that the ProcessTap branch
-/// in a future task can simply change the return logic here.
+/// v1 always returns [`CaptureStrategy::ScreenCaptureKit`].  The ProcessTap
+/// branch in a future task (v1.1) can change the return logic here without
+/// touching callers.
 pub fn capture_strategy() -> CaptureStrategy {
-    // Run sw_vers to keep the OS-probe path exercised.  The output is intentionally
-    // ignored; v1 unconditionally uses ScreenCaptureKit.
-    let _ = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output();
+    // v1 always returns ScreenCaptureKit. The macOS-version probe is kept for the v1.1 path
+    // when ProcessTap lands. We do not branch on it yet because the FFI handshake is out of
+    // scope for this plan and ScreenCaptureKit already covers Meeting mode on 13.0+.
     CaptureStrategy::ScreenCaptureKit
 }
 
@@ -136,9 +134,9 @@ mod sckit {
             let mut f32s: Vec<f32> = Vec::new();
             for buf in audio_buf_list.buffers() {
                 let bytes = buf.data();
-                // Each sample is 4 bytes (f32 little-endian).
+                // Each sample is 4 bytes (f32, host native byte order).
                 let samples = bytes.chunks_exact(4).map(|b| {
-                    f32::from_le_bytes([b[0], b[1], b[2], b[3]])
+                    f32::from_ne_bytes([b[0], b[1], b[2], b[3]])
                 });
                 f32s.extend(samples);
             }
@@ -225,7 +223,7 @@ mod sckit {
 
                 // ── Assemble stream ──────────────────────────────────────────
                 let handler = OutputHandler {
-                    tx: tx.clone(),
+                    tx,
                     resampler: Arc::new(Mutex::new(resampler)),
                     chunker: Arc::new(Mutex::new(Chunker::new())),
                 };
