@@ -4,6 +4,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 mod error;
 pub mod audio;
+pub mod config;
 pub mod translation;
 pub mod speaker_map;
 pub mod latency;
