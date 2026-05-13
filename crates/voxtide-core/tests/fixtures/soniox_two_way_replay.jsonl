@@ -1,0 +1,4 @@
+{"tokens":[{"text":"Hello","is_final":false,"language":"en","translation_status":"original","speaker":"1"}]}
+{"tokens":[{"text":"Hello,","is_final":true,"language":"en","translation_status":"original","speaker":"1"},{"text":"Xin chào,","is_final":true,"language":"vi","translation_status":"translation","source_language":"en","speaker":"1"}],"final_audio_proc_ms":300,"total_audio_proc_ms":350}
+{"tokens":[{"text":"How are you?","is_final":true,"language":"en","translation_status":"original","speaker":"1"},{"text":"Bạn khoẻ không?","is_final":true,"language":"vi","translation_status":"translation","source_language":"en","speaker":"1"}],"final_audio_proc_ms":900,"total_audio_proc_ms":920}
+{"finished":true}
