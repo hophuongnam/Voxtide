@@ -8,5 +8,7 @@ pub mod translation;
 pub mod speaker_map;
 pub mod latency;
 pub mod persistence;
+pub mod keychain;
 
 pub use error::{Error, Result};
+pub use keychain::Keychain;
