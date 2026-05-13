@@ -27,10 +27,16 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 
     #[error("websocket: {0}")]
-    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
+    WebSocket(Box<tokio_tungstenite::tungstenite::Error>),
 
     #[error("invalid url: {0}")]
     Url(#[from] url::ParseError),
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(e: tokio_tungstenite::tungstenite::Error) -> Self {
+        Error::WebSocket(Box::new(e))
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
