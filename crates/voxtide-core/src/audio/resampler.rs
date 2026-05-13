@@ -66,22 +66,26 @@ impl Resampler {
             self.mono_buf.push(sum / ch as f32);
         }
 
-        if self.inner.is_none() {
+        let Some(r) = self.inner.as_mut() else {
             return Ok(self.mono_buf.clone());
-        }
-
-        let r = self.inner.as_mut().expect("checked above");
-        let mut out = Vec::new();
-        let input_chunk = r.input_frames_next();
+        };
+        let ratio = SAMPLE_RATE_HZ as f64 / self.spec.source_hz as f64;
+        let estimated_out = (self.mono_buf.len() as f64 * ratio).ceil() as usize + 16;
+        let mut out = Vec::with_capacity(estimated_out);
         let mut cursor = 0;
-        while cursor + input_chunk <= self.mono_buf.len() {
+        while cursor + r.input_frames_next() <= self.mono_buf.len() {
+            let input_chunk = r.input_frames_next();
             let slice = &self.mono_buf[cursor..cursor + input_chunk];
             let processed = r.process(&[slice], None)
                 .map_err(|e| Error::Audio(format!("rubato process: {e}")))?;
             out.extend_from_slice(&processed[0]);
             cursor += input_chunk;
         }
-        // Drop the tail; caller's Chunker will absorb partial 100 ms windows.
+        // Tail samples (mono_buf.len() % input_chunk) are discarded.
+        // For 48k→16k this is always 0 (4800 % 480 == 0). For other source
+        // rates a small percentage of samples is lost per call. If non-48k
+        // sources are ever supported with no loss, accumulate the tail
+        // across process() invocations instead.
         Ok(out)
     }
 }
