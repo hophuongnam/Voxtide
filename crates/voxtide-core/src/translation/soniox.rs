@@ -39,3 +39,17 @@ pub fn build_initial_config(cfg: &SessionConfig) -> Value {
     }
     base
 }
+
+pub const MAX_ATTEMPTS: u32 = 6;
+
+pub fn next_backoff_ms(attempt: u32) -> u64 {
+    // attempt is 1-indexed.
+    let raw = match attempt {
+        1 => 250,
+        2 => 500,
+        3 => 1000,
+        4 => 2000,
+        _ => 5000,
+    };
+    raw.min(5000)
+}
