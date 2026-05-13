@@ -1,8 +1,8 @@
 //! Translation provider abstraction.
 
-pub mod tokens;
-pub mod soniox;
 pub mod mock;
+pub mod soniox;
+pub mod tokens;
 
 use serde::{Deserialize, Serialize};
 

@@ -19,7 +19,8 @@ fn cycles_at_d() {
 #[test]
 fn serializes_to_and_from_map() {
     let mut m = SpeakerMap::new();
-    m.chip_for("1"); m.chip_for("2");
+    m.chip_for("1");
+    m.chip_for("2");
     let snapshot = m.snapshot();
     let m2 = SpeakerMap::from_snapshot(snapshot.clone());
     assert_eq!(m2.snapshot(), snapshot);

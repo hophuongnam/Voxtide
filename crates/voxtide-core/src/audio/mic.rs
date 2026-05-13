@@ -130,9 +130,8 @@ impl AudioSource for MicSource {
                 let supported_config = match device.default_input_config() {
                     Ok(c) => c,
                     Err(e) => {
-                        let _ = init_tx.send(Err(Error::Audio(format!(
-                            "cpal default_input_config: {e}"
-                        ))));
+                        let _ = init_tx
+                            .send(Err(Error::Audio(format!("cpal default_input_config: {e}"))));
                         return;
                     }
                 };
@@ -164,16 +163,17 @@ impl AudioSource for MicSource {
                         let tx_cb = tx.clone();
                         let mut r_cb = resampler;
                         let mut c_cb = chunker;
-                        device.build_input_stream(
-                            &stream_config,
-                            move |data: &[$sample_ty], _| {
-                                let f32s: Vec<f32> = data.iter().map($to_f32).collect();
-                                push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
-                            },
-                            |e| tracing::error!(?e, "cpal stream error"),
-                            None,
-                        )
-                        .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
+                        device
+                            .build_input_stream(
+                                &stream_config,
+                                move |data: &[$sample_ty], _| {
+                                    let f32s: Vec<f32> = data.iter().map($to_f32).collect();
+                                    push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
+                                },
+                                |e| tracing::error!(?e, "cpal stream error"),
+                                None,
+                            )
+                            .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
                     }};
                 }
 
@@ -224,8 +224,7 @@ impl AudioSource for MicSource {
                 };
 
                 if let Err(e) = stream.play() {
-                    let _ =
-                        init_tx.send(Err(Error::Audio(format!("cpal play: {e}"))));
+                    let _ = init_tx.send(Err(Error::Audio(format!("cpal play: {e}"))));
                     return;
                 }
 
@@ -238,8 +237,8 @@ impl AudioSource for MicSource {
                 {
                     Ok(r) => r,
                     Err(e) => {
-                        let _ = init_tx
-                            .send(Err(Error::Audio(format!("mic stop-wait runtime: {e}"))));
+                        let _ =
+                            init_tx.send(Err(Error::Audio(format!("mic stop-wait runtime: {e}"))));
                         return;
                     }
                 };

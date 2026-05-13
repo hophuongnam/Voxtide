@@ -21,25 +21,29 @@ pub struct WavSource {
 
 impl WavSource {
     pub fn open(path: &Path, realtime: bool) -> Result<Self> {
-        let mut reader = hound::WavReader::open(path)
-            .map_err(|e| Error::Audio(format!("wav open: {e}")))?;
+        let mut reader =
+            hound::WavReader::open(path).map_err(|e| Error::Audio(format!("wav open: {e}")))?;
         let spec = reader.spec();
         let mut samples: Vec<f32> = match spec.sample_format {
             hound::SampleFormat::Int => {
                 let max = ((1i64 << (spec.bits_per_sample - 1)) - 1) as f32;
-                reader.samples::<i32>()
-                    .map(|s| s.map(|v| v as f32 / max).map_err(|e| Error::Audio(format!("wav read: {e}"))))
+                reader
+                    .samples::<i32>()
+                    .map(|s| {
+                        s.map(|v| v as f32 / max)
+                            .map_err(|e| Error::Audio(format!("wav read: {e}")))
+                    })
                     .collect::<Result<_>>()?
             }
             // IEEE_FLOAT WAVs are standardised in [-1.0, 1.0]; no normalisation needed.
-            hound::SampleFormat::Float => {
-                reader.samples::<f32>()
-                    .map(|s| s.map_err(|e| Error::Audio(format!("wav read: {e}"))))
-                    .collect::<Result<_>>()?
-            }
+            hound::SampleFormat::Float => reader
+                .samples::<f32>()
+                .map(|s| s.map_err(|e| Error::Audio(format!("wav read: {e}"))))
+                .collect::<Result<_>>()?,
         };
         samples.shrink_to_fit();
-        let label = path.file_stem()
+        let label = path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "wav".into());
         Ok(Self {
@@ -67,7 +71,10 @@ impl AudioSource for WavSource {
                     return;
                 }
             };
-            let mut resampler = match Resampler::new(ResamplerSpec { source_hz: rate, source_channels: ch }) {
+            let mut resampler = match Resampler::new(ResamplerSpec {
+                source_hz: rate,
+                source_channels: ch,
+            }) {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!(?e, "resampler init failed");
@@ -85,18 +92,27 @@ impl AudioSource for WavSource {
                     Ok(_) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
                     Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
                 }
-                if cursor >= all.len() { break; }
+                if cursor >= all.len() {
+                    break;
+                }
                 let end = (cursor + frames_per_tick).min(all.len());
                 let processed = match resampler.process(&all[cursor..end]) {
                     Ok(v) => v,
-                    Err(e) => { tracing::error!(?e, "resample"); break; }
+                    Err(e) => {
+                        tracing::error!(?e, "resample");
+                        break;
+                    }
                 };
                 let i16s: Vec<i16> = processed.into_iter().map(f32_to_i16).collect();
                 for frame in chunker.push(&i16s) {
-                    if tx.send(frame).await.is_err() { return; }
+                    if tx.send(frame).await.is_err() {
+                        return;
+                    }
                 }
                 cursor = end;
-                if realtime { tokio::time::sleep(interval).await; }
+                if realtime {
+                    tokio::time::sleep(interval).await;
+                }
             }
             // Any sub-frame remainder in chunker.buf is intentionally discarded;
             // callers must not rely on receiving the final partial frame.
@@ -104,6 +120,10 @@ impl AudioSource for WavSource {
 
         Ok(AudioStream { rx, stop: stop_tx })
     }
-    fn label(&self) -> &str { &self.label }
-    fn kind(&self) -> SourceKind { SourceKind::Mock }
+    fn label(&self) -> &str {
+        &self.label
+    }
+    fn kind(&self) -> SourceKind {
+        SourceKind::Mock
+    }
 }

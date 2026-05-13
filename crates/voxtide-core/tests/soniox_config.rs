@@ -20,10 +20,13 @@ fn meeting_one_way_config_targets_my_language() {
     assert_eq!(v["enable_speaker_diarization"], true);
     assert_eq!(v["enable_endpoint_detection"], true);
     assert_eq!(v["language_hints"], json!(["en"]));
-    assert_eq!(v["translation"], json!({
-        "type": "one_way",
-        "target_language": "vi"
-    }));
+    assert_eq!(
+        v["translation"],
+        json!({
+            "type": "one_way",
+            "target_language": "vi"
+        })
+    );
 }
 
 #[test]
@@ -36,10 +39,13 @@ fn conversation_two_way_config_emits_both_languages() {
         mine: WhichLang::A,
     };
     let v = build_initial_config(&cfg);
-    assert_eq!(v["translation"], json!({
-        "type": "two_way",
-        "language_a": "en",
-        "language_b": "ja"
-    }));
+    assert_eq!(
+        v["translation"],
+        json!({
+            "type": "two_way",
+            "language_a": "en",
+            "language_b": "ja"
+        })
+    );
     assert_eq!(v["language_hints"], serde_json::Value::Null);
 }

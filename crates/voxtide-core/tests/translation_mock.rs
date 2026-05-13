@@ -1,6 +1,8 @@
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang};
+use voxtide_core::translation::{
+    Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang,
+};
 
 #[tokio::test]
 async fn mock_replays_a_script_after_open() {

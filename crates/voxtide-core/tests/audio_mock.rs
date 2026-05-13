@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use voxtide_core::audio::{mock::WavSource, AudioSource, CHUNK_SAMPLES};
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 #[tokio::test]

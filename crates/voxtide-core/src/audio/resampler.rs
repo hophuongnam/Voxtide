@@ -1,4 +1,6 @@
-use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction, Resampler as _};
+use rubato::{
+    Resampler as _, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 
 use crate::audio::SAMPLE_RATE_HZ;
 use crate::{Error, Result};
@@ -53,7 +55,11 @@ impl Resampler {
                 .map_err(|e| Error::Audio(format!("rubato init: {e}")))?;
             Some(r)
         };
-        Ok(Self { spec, inner, mono_buf: Vec::new() })
+        Ok(Self {
+            spec,
+            inner,
+            mono_buf: Vec::new(),
+        })
     }
 
     /// Process interleaved samples in `[-1.0, 1.0]`. Returns mono @ 16 kHz f32.
@@ -76,7 +82,8 @@ impl Resampler {
         while cursor + r.input_frames_next() <= self.mono_buf.len() {
             let input_chunk = r.input_frames_next();
             let slice = &self.mono_buf[cursor..cursor + input_chunk];
-            let processed = r.process(&[slice], None)
+            let processed = r
+                .process(&[slice], None)
                 .map_err(|e| Error::Audio(format!("rubato process: {e}")))?;
             out.extend_from_slice(&processed[0]);
             cursor += input_chunk;

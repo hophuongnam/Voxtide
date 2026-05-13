@@ -93,11 +93,8 @@ mod sckit {
         output::CMSampleBuffer,
         shareable_content::SCShareableContent,
         stream::{
-            configuration::SCStreamConfiguration,
-            content_filter::SCContentFilter,
-            output_trait::SCStreamOutputTrait,
-            output_type::SCStreamOutputType,
-            SCStream,
+            configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+            output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, SCStream,
         },
     };
 
@@ -135,9 +132,9 @@ mod sckit {
             for buf in audio_buf_list.buffers() {
                 let bytes = buf.data();
                 // Each sample is 4 bytes (f32, host native byte order).
-                let samples = bytes.chunks_exact(4).map(|b| {
-                    f32::from_ne_bytes([b[0], b[1], b[2], b[3]])
-                });
+                let samples = bytes
+                    .chunks_exact(4)
+                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]));
                 f32s.extend(samples);
             }
 
@@ -200,14 +197,11 @@ mod sckit {
 
                 let mut displays = content.displays();
                 if displays.is_empty() {
-                    let _ = init_tx.send(Err(Error::Audio(
-                        "sckit: no display available".into(),
-                    )));
+                    let _ = init_tx.send(Err(Error::Audio("sckit: no display available".into())));
                     return;
                 }
                 let display = displays.remove(0);
-                let filter =
-                    SCContentFilter::new().with_display_excluding_windows(&display, &[]);
+                let filter = SCContentFilter::new().with_display_excluding_windows(&display, &[]);
 
                 // ── Build resampler + chunker ────────────────────────────────
                 let resampler = match Resampler::new(ResamplerSpec {
@@ -232,9 +226,7 @@ mod sckit {
                 stream.add_output_handler(handler, SCStreamOutputType::Audio);
 
                 if let Err(e) = stream.start_capture() {
-                    let _ = init_tx.send(Err(Error::Audio(format!(
-                        "sckit start_capture: {e:?}"
-                    ))));
+                    let _ = init_tx.send(Err(Error::Audio(format!("sckit start_capture: {e:?}"))));
                     return;
                 }
 
@@ -246,9 +238,8 @@ mod sckit {
                     Ok(r) => r,
                     Err(e) => {
                         let _ = stream.stop_capture();
-                        let _ = init_tx.send(Err(Error::Audio(format!(
-                            "sckit stop-wait runtime: {e}"
-                        ))));
+                        let _ = init_tx
+                            .send(Err(Error::Audio(format!("sckit stop-wait runtime: {e}"))));
                         return;
                     }
                 };

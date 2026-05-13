@@ -1,4 +1,4 @@
-use voxtide_core::translation::tokens::{parse_message, Token, TranslationStatus, ServerMessage};
+use voxtide_core::translation::tokens::{parse_message, ServerMessage, Token, TranslationStatus};
 
 #[test]
 fn parses_two_way_token_pair() {
@@ -13,7 +13,9 @@ fn parses_two_way_token_pair() {
       "finished": false
     }"#;
     let m = parse_message(json).unwrap();
-    let ServerMessage::Tokens(t) = m else { panic!("expected Tokens"); };
+    let ServerMessage::Tokens(t) = m else {
+        panic!("expected Tokens");
+    };
     assert_eq!(t.tokens.len(), 2);
     let a: &Token = &t.tokens[0];
     assert!(a.is_final);
@@ -36,7 +38,9 @@ fn parses_finished_marker() {
 #[test]
 fn parses_error_payload() {
     let m = parse_message(r#"{"error":{"code":"unauthorized","message":"bad key"}}"#).unwrap();
-    let ServerMessage::Error { code, message } = m else { panic!("expected Error"); };
+    let ServerMessage::Error { code, message } = m else {
+        panic!("expected Error");
+    };
     assert_eq!(code, "unauthorized");
     assert_eq!(message, "bad key");
 }
@@ -47,7 +51,9 @@ fn parses_non_final_with_speaker() {
         {"text":"th","is_final":false,"language":"en","translation_status":"original","speaker":"1"}
     ]}"#;
     let m = parse_message(json).unwrap();
-    let ServerMessage::Tokens(t) = m else { panic!("expected Tokens"); };
+    let ServerMessage::Tokens(t) = m else {
+        panic!("expected Tokens");
+    };
     assert!(!t.tokens[0].is_final);
     assert_eq!(t.tokens[0].speaker.as_deref(), Some("1"));
 }

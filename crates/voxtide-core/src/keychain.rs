@@ -6,7 +6,9 @@ pub struct Keychain {
 
 impl Keychain {
     pub fn new(service: &str) -> Self {
-        Self { service: service.to_string() }
+        Self {
+            service: service.to_string(),
+        }
     }
 
     fn entry(&self, account: &str) -> Result<keyring::Entry> {
@@ -14,7 +16,9 @@ impl Keychain {
     }
 
     pub fn set(&self, account: &str, secret: &str) -> Result<()> {
-        self.entry(account)?.set_password(secret).map_err(Error::from)
+        self.entry(account)?
+            .set_password(secret)
+            .map_err(Error::from)
     }
 
     pub fn get(&self, account: &str) -> Result<String> {

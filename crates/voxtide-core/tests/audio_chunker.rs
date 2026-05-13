@@ -29,7 +29,9 @@ fn chunker_emits_multiple_chunks_when_overfed() {
 
 #[test]
 fn audio_frame_to_le_bytes_doubles_sample_count() {
-    let f = AudioFrame { samples: vec![0i16, 1, -1, 256] };
+    let f = AudioFrame {
+        samples: vec![0i16, 1, -1, 256],
+    };
     let bytes = f.to_le_bytes();
     assert_eq!(bytes.len(), 8);
     assert_eq!(&bytes[0..2], &[0, 0]);

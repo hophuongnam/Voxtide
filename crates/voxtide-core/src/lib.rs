@@ -2,15 +2,15 @@
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-mod error;
 pub mod audio;
 pub mod config;
-pub mod translation;
-pub mod speaker_map;
+mod error;
+pub mod keychain;
 pub mod latency;
 pub mod persistence;
-pub mod keychain;
 pub mod session;
+pub mod speaker_map;
+pub mod translation;
 
 pub use error::{Error, Result};
 pub use keychain::Keychain;

@@ -4,7 +4,9 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use voxtide_core::translation::soniox::SonioxBYOK;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang};
+use voxtide_core::translation::{
+    Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang,
+};
 
 async fn spawn_replay_server(replay_path: &'static str) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -20,7 +22,9 @@ async fn spawn_replay_server(replay_path: &'static str) -> String {
                 // 2) Replay the file, sleeping 10ms between messages so the client can poll.
                 let text = std::fs::read_to_string(&path).unwrap();
                 for line in text.lines() {
-                    if line.trim().is_empty() { continue; }
+                    if line.trim().is_empty() {
+                        continue;
+                    }
                     tx.send(Message::Text(line.to_string())).await.unwrap();
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
@@ -33,16 +37,22 @@ async fn spawn_replay_server(replay_path: &'static str) -> String {
 
 #[tokio::test]
 async fn soniox_byok_streams_tokens_through_to_events() {
-    let url = spawn_replay_server(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/soniox_two_way_replay.jsonl")).await;
+    let url = spawn_replay_server(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/soniox_two_way_replay.jsonl"
+    ))
+    .await;
     let mut provider = SonioxBYOK::with_endpoint(&url);
-    provider.open(SessionConfig {
-        api_key: "test".into(),
-        mode: Mode::Conversation,
-        language_a: "en".into(),
-        language_b: "vi".into(),
-        mine: WhichLang::A,
-    }).await.unwrap();
+    provider
+        .open(SessionConfig {
+            api_key: "test".into(),
+            mode: Mode::Conversation,
+            language_a: "en".into(),
+            language_b: "vi".into(),
+            mine: WhichLang::A,
+        })
+        .await
+        .unwrap();
 
     let mut finals = 0;
     let mut got_translation = false;
@@ -51,11 +61,16 @@ async fn soniox_byok_streams_tokens_through_to_events() {
         match ev {
             TranslationEvent::Final { status, .. } => {
                 finals += 1;
-                if matches!(status, voxtide_core::translation::tokens::TranslationStatus::Translation) {
+                if matches!(
+                    status,
+                    voxtide_core::translation::tokens::TranslationStatus::Translation
+                ) {
                     got_translation = true;
                 }
             }
-            TranslationEvent::Live { .. } => { got_live = true; }
+            TranslationEvent::Live { .. } => {
+                got_live = true;
+            }
             TranslationEvent::Stopped => break,
             _ => {}
         }

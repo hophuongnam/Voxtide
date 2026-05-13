@@ -11,7 +11,9 @@ use voxtide_core::translation::tokens::TranslationStatus;
 use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, WhichLang};
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 #[tokio::test]
@@ -24,16 +26,24 @@ async fn session_persists_finals_and_emits_events() {
     let script = vec![
         TranslationEvent::Connected,
         TranslationEvent::Live {
-            text: "Hel".into(), language: Some("en".into()),
-            status: TranslationStatus::Original, speaker: Some("1".into()),
+            text: "Hel".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
         },
         TranslationEvent::Final {
-            text: "Hello".into(), language: Some("en".into()),
-            status: TranslationStatus::Original, speaker: Some("1".into()), ts_ms: 100,
+            text: "Hello".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 100,
         },
         TranslationEvent::Final {
-            text: "Xin chào".into(), language: Some("vi".into()),
-            status: TranslationStatus::Translation, speaker: Some("1".into()), ts_ms: 110,
+            text: "Xin chào".into(),
+            language: Some("vi".into()),
+            status: TranslationStatus::Translation,
+            speaker: Some("1".into()),
+            ts_ms: 110,
         },
         TranslationEvent::Stopped,
     ];
@@ -42,20 +52,28 @@ async fn session_persists_finals_and_emits_events() {
     let ctl = SessionController::new(store);
     let mut events = ctl.subscribe();
 
-    let session_id = ctl.start(StartArgs {
-        cfg: SessionConfig {
-            api_key: "test".into(), mode: Mode::Meeting,
-            language_a: "en".into(), language_b: "vi".into(), mine: WhichLang::B,
-        },
-        source: wav,
-        provider,
-        device_label: Some("Mock WAV".into()),
-    }).await.unwrap();
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+                mine: WhichLang::B,
+            },
+            source: wav,
+            provider,
+            device_label: Some("Mock WAV".into()),
+        })
+        .await
+        .unwrap();
 
     let mut finals_seen = 0;
     let mut got_live = false;
     while let Ok(ev) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
-        let Ok(ev) = ev else { break; };
+        let Ok(ev) = ev else {
+            break;
+        };
         match ev {
             CoreEvent::TranscriptFinal { .. } => finals_seen += 1,
             CoreEvent::TranscriptLive { .. } => got_live = true,
@@ -73,7 +91,9 @@ async fn session_persists_finals_and_emits_events() {
     assert_eq!(rows[0].id, session_id);
     assert!(rows[0].ended_at.is_some());
 
-    let tokens = Tokens::list_by_session(store.pool(), session_id).await.unwrap();
+    let tokens = Tokens::list_by_session(store.pool(), session_id)
+        .await
+        .unwrap();
     assert_eq!(tokens.len(), 2);
     assert_eq!(tokens[0].text, "Hello");
     assert_eq!(tokens[1].text, "Xin chào");

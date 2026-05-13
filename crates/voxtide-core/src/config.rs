@@ -44,7 +44,9 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     pub fn at<P: AsRef<Path>>(path: P) -> Self {
-        Self { path: path.as_ref().to_path_buf() }
+        Self {
+            path: path.as_ref().to_path_buf(),
+        }
     }
 
     pub fn save(&self, cfg: &AppConfig) -> Result<()> {

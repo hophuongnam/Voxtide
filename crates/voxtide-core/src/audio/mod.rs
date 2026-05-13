@@ -1,13 +1,13 @@
 //! Audio capture abstraction. Output is always 16 kHz mono s16le PCM in 1600-sample (100 ms) chunks.
 
-pub mod resampler;
 pub mod mock;
+pub mod resampler;
 
 #[cfg(target_os = "macos")]
 pub mod macos_loopback;
+pub mod mic;
 #[cfg(target_os = "windows")]
 pub mod windows_loopback;
-pub mod mic;
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -39,12 +39,16 @@ pub struct Chunker {
 }
 
 impl Chunker {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn push<'a>(&'a mut self, input: &[i16]) -> impl Iterator<Item = AudioFrame> + 'a {
         self.buf.extend_from_slice(input);
         std::iter::from_fn(move || {
-            if self.buf.len() < CHUNK_SAMPLES { return None; }
+            if self.buf.len() < CHUNK_SAMPLES {
+                return None;
+            }
             let chunk: Vec<i16> = self.buf.drain(..CHUNK_SAMPLES).collect();
             Some(AudioFrame { samples: chunk })
         })
@@ -53,7 +57,11 @@ impl Chunker {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum SourceKind { Mic, SystemLoopback, Mock }
+pub enum SourceKind {
+    Mic,
+    SystemLoopback,
+    Mock,
+}
 
 pub struct AudioStream {
     pub rx: mpsc::Receiver<AudioFrame>,

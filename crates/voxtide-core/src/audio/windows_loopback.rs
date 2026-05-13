@@ -79,9 +79,7 @@ fn pick_render_device(host: &cpal::Host, want_id: Option<&str>) -> Result<cpal::
                 return Ok(d);
             }
         }
-        return Err(Error::Audio(format!(
-            "render device not found: {id}"
-        )));
+        return Err(Error::Audio(format!("render device not found: {id}")));
     }
     host.default_output_device()
         .ok_or_else(|| Error::Audio("no default render device".into()))
@@ -177,16 +175,17 @@ impl AudioSource for WinLoopbackSource {
                         let tx_cb = tx.clone();
                         let mut r_cb = resampler;
                         let mut c_cb = chunker;
-                        device.build_input_stream(
-                            &stream_config,
-                            move |data: &[$sample_ty], _| {
-                                let f32s: Vec<f32> = data.iter().map($to_f32).collect();
-                                push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
-                            },
-                            |e| tracing::error!(?e, "wasapi stream error"),
-                            None,
-                        )
-                        .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
+                        device
+                            .build_input_stream(
+                                &stream_config,
+                                move |data: &[$sample_ty], _| {
+                                    let f32s: Vec<f32> = data.iter().map($to_f32).collect();
+                                    push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
+                                },
+                                |e| tracing::error!(?e, "wasapi stream error"),
+                                None,
+                            )
+                            .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
                     }};
                 }
 
@@ -237,8 +236,7 @@ impl AudioSource for WinLoopbackSource {
                 };
 
                 if let Err(e) = stream.play() {
-                    let _ = init_tx
-                        .send(Err(Error::Audio(format!("wasapi play: {e}"))));
+                    let _ = init_tx.send(Err(Error::Audio(format!("wasapi play: {e}"))));
                     return;
                 }
 
@@ -251,9 +249,8 @@ impl AudioSource for WinLoopbackSource {
                 {
                     Ok(r) => r,
                     Err(e) => {
-                        let _ = init_tx.send(Err(Error::Audio(format!(
-                            "wasapi stop-wait runtime: {e}"
-                        ))));
+                        let _ = init_tx
+                            .send(Err(Error::Audio(format!("wasapi stop-wait runtime: {e}"))));
                         return;
                     }
                 };

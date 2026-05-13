@@ -3,7 +3,11 @@ use voxtide_core::audio::SAMPLE_RATE_HZ;
 
 #[test]
 fn passthrough_when_source_rate_matches_target() {
-    let mut r = Resampler::new(ResamplerSpec { source_hz: SAMPLE_RATE_HZ, source_channels: 1 }).unwrap();
+    let mut r = Resampler::new(ResamplerSpec {
+        source_hz: SAMPLE_RATE_HZ,
+        source_channels: 1,
+    })
+    .unwrap();
     let input: Vec<f32> = (0..1600).map(|i| (i as f32) / 1600.0).collect();
     let out = r.process(&input).unwrap();
     assert_eq!(out.len(), 1600);
@@ -13,7 +17,11 @@ fn passthrough_when_source_rate_matches_target() {
 
 #[test]
 fn downsamples_48k_to_16k_within_5_percent_length() {
-    let mut r = Resampler::new(ResamplerSpec { source_hz: 48_000, source_channels: 1 }).unwrap();
+    let mut r = Resampler::new(ResamplerSpec {
+        source_hz: 48_000,
+        source_channels: 1,
+    })
+    .unwrap();
     let input = vec![0.0f32; 4800]; // 100 ms @ 48 kHz
     let out = r.process(&input).unwrap();
     // Expect ~1600 samples (100 ms @ 16 kHz). Allow ±5%.
@@ -24,7 +32,11 @@ fn downsamples_48k_to_16k_within_5_percent_length() {
 
 #[test]
 fn stereo_downmix_to_mono_averages_channels() {
-    let mut r = Resampler::new(ResamplerSpec { source_hz: 16_000, source_channels: 2 }).unwrap();
+    let mut r = Resampler::new(ResamplerSpec {
+        source_hz: 16_000,
+        source_channels: 2,
+    })
+    .unwrap();
     // Interleaved stereo: [L=1.0, R=-1.0, L=0.5, R=0.5, ...]
     let input = vec![1.0_f32, -1.0, 0.5, 0.5, 0.2, 0.4];
     let out = r.process(&input).unwrap();
@@ -36,7 +48,11 @@ fn stereo_downmix_to_mono_averages_channels() {
 
 #[test]
 fn new_rejects_zero_source_hz() {
-    let err = Resampler::new(ResamplerSpec { source_hz: 0, source_channels: 1 }).unwrap_err();
+    let err = Resampler::new(ResamplerSpec {
+        source_hz: 0,
+        source_channels: 1,
+    })
+    .unwrap_err();
     assert!(err.to_string().contains("source_hz"));
 }
 

@@ -22,13 +22,18 @@ impl Store {
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(opts)
+            .await?;
         let store = Self { pool };
         store.migrate().await?;
         Ok(store)
     }
 
-    pub fn pool(&self) -> &SqlitePool { &self.pool }
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
 
     async fn migrate(&self) -> Result<()> {
         let sql = include_str!("migrations/0001_init.sql");
@@ -45,14 +50,21 @@ fn split_statements(s: &str) -> Vec<String> {
     let mut in_trigger = false;
     for line in s.lines() {
         let t = line.trim();
-        if t.to_uppercase().starts_with("CREATE TRIGGER") { in_trigger = true; }
-        buf.push_str(line); buf.push('\n');
+        if t.to_uppercase().starts_with("CREATE TRIGGER") {
+            in_trigger = true;
+        }
+        buf.push_str(line);
+        buf.push('\n');
         if t.ends_with(';') {
-            if in_trigger && !t.contains("END;") { continue; }
+            if in_trigger && !t.contains("END;") {
+                continue;
+            }
             out.push(std::mem::take(&mut buf));
             in_trigger = false;
         }
     }
-    if !buf.trim().is_empty() { out.push(buf); }
+    if !buf.trim().is_empty() {
+        out.push(buf);
+    }
     out
 }
