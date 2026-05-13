@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::audio::resampler::{f32_to_i16, Resampler, ResamplerSpec};
@@ -81,11 +78,11 @@ fn pick_device(host: &cpal::Host, want_id: Option<&str>) -> Result<cpal::Device>
 /// Convert a &[f32] slice into AudioFrames and push them onto the channel.
 fn push_f32_samples(
     samples: &[f32],
-    resampler: &Arc<Mutex<Resampler>>,
-    chunker: &Arc<Mutex<Chunker>>,
+    resampler: &mut Resampler,
+    chunker: &mut Chunker,
     tx: &mpsc::Sender<AudioFrame>,
 ) {
-    let processed = match resampler.lock().process(samples) {
+    let processed = match resampler.process(samples) {
         Ok(v) => v,
         Err(e) => {
             tracing::error!(?e, "mic resample");
@@ -93,7 +90,7 @@ fn push_f32_samples(
         }
     };
     let i16s: Vec<i16> = processed.into_iter().map(f32_to_i16).collect();
-    let frames: Vec<AudioFrame> = chunker.lock().push(&i16s).collect();
+    let frames: Vec<AudioFrame> = chunker.push(&i16s).collect();
     for f in frames {
         if tx.try_send(f).is_err() {
             tracing::warn!("mic backpressure: dropping frame");
@@ -151,25 +148,27 @@ impl AudioSource for MicSource {
                     source_hz: sample_rate,
                     source_channels: channels,
                 }) {
-                    Ok(r) => Arc::new(Mutex::new(r)),
+                    Ok(r) => r,
                     Err(e) => {
                         let _ = init_tx.send(Err(e));
                         return;
                     }
                 };
-                let chunker = Arc::new(Mutex::new(Chunker::new()));
+                let chunker = Chunker::new();
 
                 // Macro-like helper to reduce repetition per sample format arm.
+                // `resampler` and `chunker` are moved into the closure; the macro
+                // expands exactly once per match arm, so each arm gets sole ownership.
                 macro_rules! build_stream {
                     ($sample_ty:ty, $to_f32:expr) => {{
                         let tx_cb = tx.clone();
-                        let r_cb = resampler.clone();
-                        let c_cb = chunker.clone();
+                        let mut r_cb = resampler;
+                        let mut c_cb = chunker;
                         device.build_input_stream(
                             &stream_config,
                             move |data: &[$sample_ty], _| {
                                 let f32s: Vec<f32> = data.iter().map($to_f32).collect();
-                                push_f32_samples(&f32s, &r_cb, &c_cb, &tx_cb);
+                                push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
                             },
                             |e| tracing::error!(?e, "cpal stream error"),
                             None,
@@ -230,18 +229,27 @@ impl AudioSource for MicSource {
                     return;
                 }
 
+                // Build the stop-wait runtime BEFORE signalling init success so
+                // that a build failure is propagated to the caller rather than
+                // silently panicking after the caller already received Ok(()).
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = init_tx
+                            .send(Err(Error::Audio(format!("mic stop-wait runtime: {e}"))));
+                        return;
+                    }
+                };
+
                 // Signal the parent thread that init succeeded.
                 let _ = init_tx.send(Ok(()));
 
                 // Block this thread until the stop signal arrives or the sender
                 // is dropped (caller dropped the AudioStream).
-                // We build a minimal single-threaded Tokio runtime just for
-                // this blocking wait — futures_util::executor is not re-exported
-                // and adding the `futures` crate is unnecessary overhead.
-                let _ = tokio::runtime::Builder::new_current_thread()
-                    .build()
-                    .expect("mic stop-wait runtime")
-                    .block_on(stop_rx);
+                let _ = rt.block_on(stop_rx);
 
                 // Dropping `stream` here stops the capture.
                 drop(stream);

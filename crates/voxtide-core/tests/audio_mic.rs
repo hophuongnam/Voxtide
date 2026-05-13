@@ -6,7 +6,7 @@ fn list_input_devices_returns_at_least_default_or_none_gracefully() {
     let devs = mic::list_input_devices().unwrap();
     for d in &devs {
         assert!(!d.label.is_empty());
-        #[allow(clippy::overly_complex_bool_expr)]
-        let _ = d.default || !d.default; // tautology: plan-mandated no-op assertion
+        // `d.default` is structurally either `true` or `false`; the type guarantees it.
+        // Other invariants (non-empty label) are covered above.
     }
 }
