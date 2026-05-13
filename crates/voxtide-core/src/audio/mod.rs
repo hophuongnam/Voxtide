@@ -1,6 +1,17 @@
 //! Audio capture abstraction. Output is always 16 kHz mono s16le PCM in 1600-sample (100 ms) chunks.
 
 pub mod resampler;
+pub mod mock;
+
+#[cfg(target_os = "macos")]
+pub mod macos_loopback;
+#[cfg(target_os = "windows")]
+pub mod windows_loopback;
+pub mod mic;
+
+use tokio::sync::{mpsc, oneshot};
+
+use crate::Result;
 
 pub const SAMPLE_RATE_HZ: u32 = 16_000;
 pub const CHANNELS: u16 = 1;
@@ -38,4 +49,23 @@ impl Chunker {
             Some(AudioFrame { samples: chunk })
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceKind { Mic, SystemLoopback, Mock }
+
+pub struct AudioStream {
+    pub rx: mpsc::Receiver<AudioFrame>,
+    pub stop: oneshot::Sender<()>,
+}
+
+pub trait AudioSource: Send + Sync {
+    fn start(&self) -> Result<AudioStream>;
+    fn label(&self) -> &str;
+    fn kind(&self) -> SourceKind;
+}
+
+pub fn channel() -> (mpsc::Sender<AudioFrame>, mpsc::Receiver<AudioFrame>) {
+    mpsc::channel(64)
 }
