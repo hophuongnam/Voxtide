@@ -15,10 +15,23 @@ pub struct Resampler {
     mono_buf: Vec<f32>,
 }
 
+impl std::fmt::Debug for Resampler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resampler")
+            .field("spec", &self.spec)
+            .field("inner", &self.inner.as_ref().map(|_| "<SincFixedIn>"))
+            .field("mono_buf_len", &self.mono_buf.len())
+            .finish()
+    }
+}
+
 impl Resampler {
     pub fn new(spec: ResamplerSpec) -> Result<Self> {
         if spec.source_channels == 0 {
             return Err(Error::Audio("source_channels must be >= 1".into()));
+        }
+        if spec.source_hz == 0 {
+            return Err(Error::Audio("source_hz must be > 0".into()));
         }
         let inner = if spec.source_hz == SAMPLE_RATE_HZ {
             None

@@ -35,6 +35,12 @@ fn stereo_downmix_to_mono_averages_channels() {
 }
 
 #[test]
+fn new_rejects_zero_source_hz() {
+    let err = Resampler::new(ResamplerSpec { source_hz: 0, source_channels: 1 }).unwrap_err();
+    assert!(err.to_string().contains("source_hz"));
+}
+
+#[test]
 fn f32_to_i16_clips() {
     use voxtide_core::audio::resampler::f32_to_i16;
     assert_eq!(f32_to_i16(0.0), 0);
