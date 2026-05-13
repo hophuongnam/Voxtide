@@ -67,7 +67,6 @@ pub fn next_backoff_ms(attempt: u32) -> u64 {
 /// Internal control envelope between the public API and the background task.
 enum Outbound {
     Binary(Vec<u8>),
-    EndOfStream,
 }
 
 /// Bring-your-own-key Soniox real-time translation provider.
@@ -100,7 +99,7 @@ impl SonioxBYOK {
 
     /// Wall-clock milliseconds since the Unix epoch. Saturates to 0 on clock
     /// skew (pre-1970) so we never panic.
-    pub(crate) fn now_ms() -> i64 {
+    fn now_ms() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
@@ -116,7 +115,7 @@ impl Default for SonioxBYOK {
 
 /// Build a terminal [`TranslationEvent::Stopped`] preceded by an error trace.
 /// Kept as a helper so the background task can fail-fast without code dup.
-pub(crate) fn stopped_with_err(msg: String) -> TranslationEvent {
+fn stopped_with_err(msg: String) -> TranslationEvent {
     tracing::error!(error = %msg, "SonioxBYOK stopping");
     TranslationEvent::Stopped
 }
@@ -193,18 +192,19 @@ impl TranslationProvider for SonioxBYOK {
                         // a closed sender would race us into `break 'inner` and we'd miss the
                         // server's final tokens / `finished` marker.
                         out = audio_rx.recv(), if !client_eos => {
-                            let Some(out) = out else { break 'inner; };
-                            let is_eos = matches!(out, Outbound::EndOfStream);
-                            let msg = match out {
-                                Outbound::Binary(b) => Message::Binary(b),
-                                Outbound::EndOfStream => Message::Text(String::new()),
-                            };
-                            if let Err(e) = ws_tx.send(msg).await {
-                                tracing::warn!(?e, "send audio; reconnecting");
-                                break 'inner;
-                            }
-                            if is_eos {
-                                client_eos = true;
+                            match out {
+                                Some(Outbound::Binary(b)) => {
+                                    if let Err(e) = ws_tx.send(Message::Binary(b)).await {
+                                        tracing::warn!(?e, "send audio; reconnecting");
+                                        break 'inner;
+                                    }
+                                }
+                                None => {
+                                    // Caller dropped the audio sender (i.e., called close()).
+                                    // Treat as client EOS: forward to server and stop polling audio.
+                                    let _ = ws_tx.send(Message::Text(String::new())).await;
+                                    client_eos = true;
+                                }
                             }
                         }
                         // Inbound from server.
@@ -244,9 +244,8 @@ impl TranslationProvider for SonioxBYOK {
                                                 break 'inner;
                                             }
                                             Ok(ServerMessage::Error { code, message }) => {
-                                                tracing::error!(%code, %message, "Soniox error");
                                                 let _ = event_tx
-                                                    .send(stopped_with_err(format!("{code}: {message}")))
+                                                    .send(stopped_with_err(format!("Soniox error {code}: {message}")))
                                                     .await;
                                                 return;
                                             }
@@ -310,25 +309,23 @@ impl TranslationProvider for SonioxBYOK {
     }
 
     async fn close(&mut self) -> Result<()> {
-        if let Some(tx) = self.audio_tx.take() {
-            // Best-effort EOS — if the task already exited we don't care.
-            let _ = tx.send(Outbound::EndOfStream).await;
-            // Dropping the sender closes the channel; the background task will
-            // observe `is_closed()` after the EOS pass-through.
-            drop(tx);
-        }
-        if let Some(task) = self.task.take() {
+        // Dropping the sender closes the channel. The background task detects
+        // `audio_rx.recv() -> None` and treats it as client EOS: it forwards an
+        // EOS sentinel to the server and exits cleanly without needing abort().
+        self.audio_tx = None;
+
+        let result = if let Some(task) = self.task.take() {
             match tokio::time::timeout(Duration::from_secs(3), task).await {
-                Ok(Ok(())) => {}
-                Ok(Err(join_err)) => {
-                    return Err(Error::Soniox(format!("join: {join_err}")));
-                }
-                Err(_) => {
-                    return Err(Error::Soniox("close timed out".into()));
-                }
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(join_err)) => Err(Error::Soniox(format!("join: {join_err}"))),
+                Err(_) => Err(Error::Soniox("close timed out".into())),
             }
-        }
+        } else {
+            Ok(())
+        };
+
+        // Always clear the event channel so next_event() returns None immediately.
         self.event_rx = None;
-        Ok(())
+        result
     }
 }
