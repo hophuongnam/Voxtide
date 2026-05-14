@@ -66,6 +66,7 @@ async fn main() {
             commands::sessions::list_sessions,
             commands::sessions::get_session,
             commands::sessions::search_transcripts,
+            commands::sessions::delete_session,
             commands::lifecycle::start_session,
             commands::lifecycle::stop_session,
             commands::overlay::show_overlay,
@@ -78,7 +79,8 @@ async fn main() {
     app.run(|app_handle, event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen {
-            has_visible_windows, ..
+            has_visible_windows,
+            ..
         } = event
         {
             if !has_visible_windows {
