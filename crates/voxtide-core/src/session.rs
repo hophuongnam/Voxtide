@@ -83,10 +83,11 @@ enum RunState {
 pub struct SessionController {
     store: Arc<Store>,
     tx: broadcast::Sender<CoreEvent>,
-    running: parking_lot::Mutex<RunState>,
+    running: Arc<parking_lot::Mutex<RunState>>,
 }
 
 struct RunningSession {
+    session_id: i64,
     join: tokio::task::JoinHandle<()>,
     stop_audio: tokio::sync::oneshot::Sender<()>,
     /// Signals the worker loop to break, persist the session end, and close the provider. We use
@@ -99,12 +100,12 @@ struct RunningSession {
 /// `start()` returns early via `?` between setting the slot to `Pending` and
 /// completing the full setup. Disarmed on success by setting `armed = false`
 /// before the guard goes out of scope.
-struct StartGuard<'a> {
-    slot: &'a parking_lot::Mutex<RunState>,
+struct StartGuard {
+    slot: Arc<parking_lot::Mutex<RunState>>,
     armed: bool,
 }
 
-impl Drop for StartGuard<'_> {
+impl Drop for StartGuard {
     fn drop(&mut self) {
         if self.armed {
             *self.slot.lock() = RunState::Idle;
@@ -118,7 +119,7 @@ impl SessionController {
         Self {
             store: Arc::new(store),
             tx,
-            running: parking_lot::Mutex::new(RunState::Idle),
+            running: Arc::new(parking_lot::Mutex::new(RunState::Idle)),
         }
     }
 
@@ -131,6 +132,16 @@ impl SessionController {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// Returns the id of the currently-running session, or `None` when idle or pending.
+    /// `Pending` deliberately reports `None` — the id is unknown until the session row has
+    /// been created and the slot has flipped to `Running`.
+    pub fn active_session_id(&self) -> Option<i64> {
+        match &*self.running.lock() {
+            RunState::Running(r) => Some(r.session_id),
+            _ => None,
+        }
     }
 
     pub async fn start(&self, args: StartArgs) -> Result<i64> {
@@ -147,7 +158,7 @@ impl SessionController {
         }
         // If any `?` below triggers, `guard` will reset the slot back to Idle on drop.
         let mut guard = StartGuard {
-            slot: &self.running,
+            slot: Arc::clone(&self.running),
             armed: true,
         };
 
@@ -177,6 +188,7 @@ impl SessionController {
 
         let store = self.store.clone();
         let tx = self.tx.clone();
+        let running = Arc::clone(&self.running);
 
         // Open the provider on the caller's task so that authentication / handshake errors surface
         // synchronously to `start()` rather than vanishing inside the spawned worker.
@@ -318,9 +330,18 @@ impl SessionController {
             // Best-effort cleanup. If the provider already closed itself (Stopped path) this is a
             // no-op; if the loop broke for another reason we want the socket released promptly.
             let _ = provider.close().await;
+
+            // Reset the slot to Idle so callers (e.g. active_session_id) see the correct state
+            // after a natural stop. Explicit stop() already resets to Idle before joining, so we
+            // only update here when the slot is still Running (i.e. the natural-stop path).
+            let mut slot = running.lock();
+            if matches!(&*slot, RunState::Running(_)) {
+                *slot = RunState::Idle;
+            }
         });
 
         *self.running.lock() = RunState::Running(RunningSession {
+            session_id,
             join,
             stop_audio,
             stop_worker: stop_worker_tx,
