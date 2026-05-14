@@ -1,1 +1,86 @@
-/* tokens populated in Task 2 */
+.vt-theme-dark {
+  --vt-bg: oklch(0.16 0.005 250);
+  --vt-bg-deep: oklch(0.12 0.005 250);
+  --vt-surface: oklch(0.20 0.006 250);
+  --vt-surface2: oklch(0.24 0.007 250);
+  --vt-surface3: oklch(0.28 0.008 250);
+  --vt-border: oklch(0.30 0.008 250);
+  --vt-border-hi: oklch(0.40 0.010 250);
+  --vt-line-sep: oklch(0.30 0.008 250 / 0.5);
+  --vt-text: oklch(0.97 0.003 250);
+  --vt-muted: oklch(0.70 0.005 250);
+  --vt-subtle: oklch(0.52 0.005 250);
+  --vt-dim: oklch(0.38 0.005 250);
+  --vt-accent: oklch(0.80 0.13 205);
+  --vt-accent-dim: oklch(0.42 0.08 205);
+  --vt-accent-ink: oklch(0.18 0.04 205);
+  --vt-accent-tint-10: oklch(0.80 0.13 205 / 0.10);
+  --vt-accent-tint-25: oklch(0.80 0.13 205 / 0.25);
+  --vt-accent-tint-50: oklch(0.80 0.13 205 / 0.50);
+  --vt-rec: oklch(0.72 0.20 25);
+  --vt-rec-glow: oklch(0.72 0.20 25 / 0.20);
+  --vt-warn: oklch(0.82 0.14 80);
+  --vt-warn-tint: oklch(0.82 0.14 80 / 0.10);
+  --vt-warn-border: oklch(0.82 0.14 80 / 0.4);
+  --vt-ok: oklch(0.78 0.13 155);
+  --vt-overlay-bg: oklch(0.13 0.005 250 / 0.88);
+  --vt-overlay-border: oklch(0.50 0.010 250 / 0.5);
+  --vt-window-shadow: 0 0 0 0.5px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04) inset,
+                       0 30px 60px -20px rgba(0,0,0,0.6), 0 18px 36px -18px rgba(0,0,0,0.5);
+  --vt-overlay-shadow: 0 1px 0 rgba(255,255,255,0.06) inset,
+                       0 20px 50px -10px rgba(0,0,0,0.5),
+                       0 8px 20px -8px rgba(0,0,0,0.6);
+  --vt-traffic-dim: oklch(0.30 0.005 250);
+  --vt-speaker-a: oklch(0.80 0.13 205);
+  --vt-speaker-b: oklch(0.78 0.13 25);
+  --vt-speaker-c: oklch(0.78 0.13 155);
+  --vt-speaker-d: oklch(0.82 0.14 80);
+  --vt-speaker-ink: oklch(0.14 0.02 250);
+  --vt-btn-inner-hi: rgba(255,255,255,0.15);
+}
+
+.vt-theme-light {
+  --vt-bg: oklch(0.985 0.003 250);
+  --vt-bg-deep: oklch(0.965 0.004 250);
+  --vt-surface: oklch(0.95 0.005 250);
+  --vt-surface2: oklch(0.92 0.006 250);
+  --vt-surface3: oklch(0.88 0.007 250);
+  --vt-border: oklch(0.85 0.008 250);
+  --vt-border-hi: oklch(0.72 0.010 250);
+  --vt-line-sep: oklch(0.85 0.008 250 / 0.7);
+  --vt-text: oklch(0.20 0.005 250);
+  --vt-muted: oklch(0.42 0.005 250);
+  --vt-subtle: oklch(0.55 0.005 250);
+  --vt-dim: oklch(0.70 0.005 250);
+  --vt-accent: oklch(0.55 0.16 205);
+  --vt-accent-dim: oklch(0.42 0.10 205);
+  --vt-accent-ink: oklch(0.99 0.005 250);
+  --vt-accent-tint-10: oklch(0.55 0.16 205 / 0.10);
+  --vt-accent-tint-25: oklch(0.55 0.16 205 / 0.25);
+  --vt-accent-tint-50: oklch(0.55 0.16 205 / 0.50);
+  --vt-rec: oklch(0.55 0.20 25);
+  --vt-rec-glow: oklch(0.55 0.20 25 / 0.18);
+  --vt-warn: oklch(0.65 0.16 80);
+  --vt-warn-tint: oklch(0.65 0.16 80 / 0.12);
+  --vt-warn-border: oklch(0.65 0.16 80 / 0.45);
+  --vt-ok: oklch(0.55 0.14 155);
+  --vt-overlay-bg: oklch(0.985 0.005 250 / 0.92);
+  --vt-overlay-border: oklch(0.65 0.010 250 / 0.4);
+  --vt-window-shadow: 0 0 0 0.5px rgba(40,55,80,0.18), 0 1px 0 rgba(255,255,255,0.7) inset,
+                       0 30px 60px -20px rgba(40,55,80,0.18), 0 18px 36px -18px rgba(40,55,80,0.15);
+  --vt-overlay-shadow: 0 1px 0 rgba(255,255,255,0.6) inset,
+                       0 20px 50px -10px rgba(40,55,80,0.18),
+                       0 8px 20px -8px rgba(40,55,80,0.20);
+  --vt-traffic-dim: oklch(0.78 0.005 250);
+  --vt-speaker-a: oklch(0.55 0.16 205);
+  --vt-speaker-b: oklch(0.55 0.20 25);
+  --vt-speaker-c: oklch(0.55 0.14 155);
+  --vt-speaker-d: oklch(0.65 0.16 80);
+  --vt-speaker-ink: oklch(0.99 0.005 250);
+  --vt-btn-inner-hi: rgba(255,255,255,0.6);
+}
+
+@keyframes vt-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
