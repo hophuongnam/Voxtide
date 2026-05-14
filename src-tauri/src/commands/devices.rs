@@ -12,7 +12,11 @@ pub fn list_mics() -> Result<Vec<DeviceEntry>, String> {
     voxtide_core::audio::mic::list_input_devices()
         .map(|v| {
             v.into_iter()
-                .map(|d| DeviceEntry { id: d.id, label: d.label, default: d.default })
+                .map(|d| DeviceEntry {
+                    id: d.id,
+                    label: d.label,
+                    default: d.default,
+                })
                 .collect()
         })
         .map_err(|e| e.to_string())
@@ -24,7 +28,11 @@ pub fn list_loopback_sources() -> Result<Vec<DeviceEntry>, String> {
     voxtide_core::audio::macos_loopback::list_loopback_sources()
         .map(|v| {
             v.into_iter()
-                .map(|s| DeviceEntry { id: s.id, label: s.label, default: false })
+                .map(|s| DeviceEntry {
+                    id: s.id,
+                    label: s.label,
+                    default: false,
+                })
                 .collect()
         })
         .map_err(|e| e.to_string())
@@ -36,7 +44,11 @@ pub fn list_loopback_sources() -> Result<Vec<DeviceEntry>, String> {
     voxtide_core::audio::windows_loopback::list_loopback_sources()
         .map(|v| {
             v.into_iter()
-                .map(|s| DeviceEntry { id: s.id, label: s.label, default: s.default })
+                .map(|s| DeviceEntry {
+                    id: s.id,
+                    label: s.label,
+                    default: s.default,
+                })
                 .collect()
         })
         .map_err(|e| e.to_string())

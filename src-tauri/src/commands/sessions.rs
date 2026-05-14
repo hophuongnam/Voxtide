@@ -13,9 +13,14 @@ pub struct SessionWithTokens {
 }
 
 #[tauri::command]
-pub async fn list_sessions(state: State<'_, AppState>, limit: i64) -> Result<Vec<SessionRow>, String> {
+pub async fn list_sessions(
+    state: State<'_, AppState>,
+    limit: i64,
+) -> Result<Vec<SessionRow>, String> {
     let pool = state.controller.store().pool().clone();
-    Sessions::list(&pool, limit).await.map_err(|e| e.to_string())
+    Sessions::list(&pool, limit)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -25,7 +30,9 @@ pub async fn get_session(state: State<'_, AppState>, id: i64) -> Result<SessionW
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("session {id} not found"))?;
-    let tokens = Tokens::list_by_session(&pool, id).await.map_err(|e| e.to_string())?;
+    let tokens = Tokens::list_by_session(&pool, id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(SessionWithTokens { session, tokens })
 }
 
@@ -36,5 +43,7 @@ pub async fn search_transcripts(
     limit: i64,
 ) -> Result<Vec<SearchHit>, String> {
     let pool = state.controller.store().pool().clone();
-    Tokens::search(&pool, &query, limit).await.map_err(|e| e.to_string())
+    Tokens::search(&pool, &query, limit)
+        .await
+        .map_err(|e| e.to_string())
 }
