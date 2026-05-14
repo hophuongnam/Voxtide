@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: universal-apple-darwin
+            artifact: dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: msi
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: macOS — add universal target
+        if: matrix.os == 'macos-14'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Windows — add arm64 target
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        run: rustup target add aarch64-pc-windows-msvc
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build --target ${{ matrix.target }}
+        env:
+          # macOS signing — populated when secrets exist; otherwise unsigned (per spec §11).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows signing
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
