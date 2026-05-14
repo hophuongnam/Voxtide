@@ -12,8 +12,9 @@
     onsearch: (q: string) => void;
     query: string;
     previews?: Record<number, string>;
+    ondeleterequest?: (row: SessionRow) => void;
   }
-  const { sessions, activeId, onselect, onsearch, query, previews = {} }: Props = $props();
+  const { sessions, activeId, onselect, onsearch, query, previews = {}, ondeleterequest }: Props = $props();
   const groups = $derived(groupByDate(sessions, s => s.started_at));
 </script>
 
@@ -39,7 +40,8 @@
             {row}
             active={row.id === activeId}
             preview={previews[row.id] ?? ''}
-            onclick={() => onselect(row.id)} />
+            onclick={() => onselect(row.id)}
+            {...(ondeleterequest ? { ondelete: ondeleterequest } : {})} />
         {/each}
       </div>
     {/each}
