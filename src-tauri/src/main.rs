@@ -34,6 +34,8 @@ async fn main() {
             commands::sessions::list_sessions,
             commands::sessions::get_session,
             commands::sessions::search_transcripts,
+            commands::lifecycle::start_session,
+            commands::lifecycle::stop_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
