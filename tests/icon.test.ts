@@ -12,6 +12,13 @@ describe('Icon', () => {
     const svg = container.querySelector('svg');
     expect(svg?.getAttribute('width')).toBe('16');
   });
+
+  it('renders the trash glyph', () => {
+    const { container } = render(Icon, { props: { name: 'trash' } });
+    const path = container.querySelector('path');
+    expect(path).toBeTruthy();
+    expect(path!.getAttribute('d')!.length).toBeGreaterThan(0);
+  });
 });
 
 describe('WaveGlyph', () => {

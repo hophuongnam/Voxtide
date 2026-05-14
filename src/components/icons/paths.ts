@@ -6,6 +6,7 @@ export const PATHS = {
   search:  'M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z M20 20l-4.5-4.5',
   play:    'M6 4l14 8-14 8V4z',
   swap:    'M7 7h13l-3-3 M17 17H4l3 3',
+  trash:   'M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6',
   chevron: 'M6 9l6 6 6-6',
   close:   'M6 6l12 12 M18 6L6 18',
   plus:    'M12 5v14 M5 12h14',
