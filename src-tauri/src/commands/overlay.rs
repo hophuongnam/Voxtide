@@ -5,9 +5,12 @@ pub fn show_overlay(app: AppHandle) -> Result<(), String> {
     let w = app
         .get_webview_window("overlay")
         .ok_or("overlay window missing")?;
-    w.show().map_err(|e| e.to_string())?;
-    w.set_ignore_cursor_events(true)
+    // Reset to interactive every show: a prior `set_overlay_click_through(true)` would
+    // otherwise persist across hide+show and swallow the mouseenter that reveals the
+    // drag handle, leaving the overlay stuck where it appeared.
+    w.set_ignore_cursor_events(false)
         .map_err(|e| e.to_string())?;
+    w.show().map_err(|e| e.to_string())?;
     Ok(())
 }
 

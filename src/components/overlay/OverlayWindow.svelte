@@ -42,13 +42,16 @@
       {#each p.lines as text, i (i)}
         {@const isLast = i === p.lines.length - 1}
         <div
-          class="overflow-hidden whitespace-nowrap text-ellipsis"
+          class={isLast ? 'overflow-hidden' : 'overflow-hidden whitespace-nowrap text-ellipsis'}
           style:font-size={isLast ? '17px' : '14px'}
           style:font-weight={isLast ? 500 : 400}
           style:line-height="1.3"
           style:letter-spacing="-0.15px"
           style:color="var(--vt-text)"
-          style:opacity={opacityFor(i, p.lines.length)}>
+          style:opacity={opacityFor(i, p.lines.length)}
+          style:display={isLast ? '-webkit-box' : undefined}
+          style:-webkit-line-clamp={isLast ? '2' : undefined}
+          style:-webkit-box-orient={isLast ? 'vertical' : undefined}>
           {text}
           {#if isLast}
             <span
