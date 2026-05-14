@@ -40,7 +40,7 @@ async fn main() {
             });
             app.manage(state);
             // Register the global hotkey on startup.
-            hotkey::register(&app.handle())?;
+            hotkey::register(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

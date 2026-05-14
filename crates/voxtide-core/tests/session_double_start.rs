@@ -131,10 +131,12 @@ async fn concurrent_starts_exactly_one_ok_one_already_running() {
     assert_eq!(err_count, 1, "exactly one start should fail");
 
     // Verify the error carries the expected message.
-    let err_msg = if res_a.is_err() {
-        res_a.unwrap_err().to_string()
+    let err_msg = if let Err(e) = res_a {
+        e.to_string()
+    } else if let Err(e) = res_b {
+        e.to_string()
     } else {
-        res_b.unwrap_err().to_string()
+        unreachable!("err_count == 1 guaranteed one of res_a/res_b is Err");
     };
     assert!(
         err_msg.contains("already running"),
