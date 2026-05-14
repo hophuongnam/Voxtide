@@ -5,6 +5,7 @@ use tauri::Manager;
 
 mod commands;
 mod events;
+mod hotkey;
 mod state;
 
 #[tokio::main]
@@ -38,6 +39,8 @@ async fn main() {
                 }
             });
             app.manage(state);
+            // Register the global hotkey on startup.
+            hotkey::register(&app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

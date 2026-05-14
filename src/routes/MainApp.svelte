@@ -11,6 +11,7 @@
 
   import PermissionBanner from '../components/PermissionBanner.svelte';
   import { applyTheme } from '../theme/theme';
+  import { listen } from '@tauri-apps/api/event';
   import {
     getConfig, hasApiKey, listLoopbackSources, listMics, listSessions,
     onCoreEvent, searchTranscripts, setConfig, startSession, stopSession,
@@ -67,6 +68,7 @@
 
   onMount(() => {
     let unlisten: (() => void) | undefined;
+    let unHotkey: (() => void) | undefined;
     const ro = new ResizeObserver((entries) => {
       const first = entries[0];
       if (first) mainWidth = Math.round(first.contentRect.width);
@@ -84,9 +86,13 @@
       sessions = await listSessions();
       refreshSources();
       unlisten = await onCoreEvent(handleCoreEvent);
+      unHotkey = await listen('voxtide://hotkey/toggle', async () => {
+        if (session.recording) await onStop();
+        else await onStart();
+      });
     })();
 
-    return () => { unlisten?.(); ro.disconnect(); clearInterval(tick); };
+    return () => { unlisten?.(); unHotkey?.(); ro.disconnect(); clearInterval(tick); };
   });
 
   async function onSearch(q: string) {
