@@ -14,7 +14,7 @@
       {
         "label": "main",
         "title": "Voxtide",
-        "width": 920, "height": 600,
+        "width": 1200, "height": 780,
         "minWidth": 480, "minHeight": 400,
         "resizable": true, "decorations": true, "transparent": false,
         "visible": true, "url": "index.html"
