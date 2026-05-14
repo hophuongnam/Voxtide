@@ -13,7 +13,7 @@
   <div class="text-[10px] pt-[3px]"
        style:color="var(--vt-dim)" style:font-family="'Geist Mono Variable', monospace">{ts}</div>
   <div>
-    {#if line.chip}<SpeakerChip letter={line.chip} lang={line.language?.toUpperCase()} />{/if}
+    {#if line.chip}<SpeakerChip letter={line.chip} lang={line.language?.toUpperCase() ?? null} />{/if}
     <div class="text-[13.5px] leading-relaxed"
          style:color={line.live ? 'var(--vt-muted)' : 'var(--vt-text)'}>
       {line.text}
