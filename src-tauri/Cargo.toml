@@ -25,6 +25,7 @@ dirs = "5"
 
 [dev-dependencies]
 tokio = { workspace = true }
+tempfile.workspace = true
 
 [features]
 default = []

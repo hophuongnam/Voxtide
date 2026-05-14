@@ -11,7 +11,7 @@
   <div class="text-[15px] font-semibold" style:color="var(--vt-text)">Add your Soniox API key</div>
   <div class="text-[12.5px] max-w-[380px] text-center leading-relaxed"
        style:color="var(--vt-muted)">
-    Voxtide uses your own Soniox key for real-time translation. The key is stored in your OS keychain and never leaves this device.
+    Voxtide uses your own Soniox key for real-time translation. The key is stored on this device and never leaves it.
   </div>
   <div class="flex gap-2 mt-2">
     <button type="button" onclick={onaddkey}

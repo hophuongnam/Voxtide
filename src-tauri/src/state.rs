@@ -24,7 +24,7 @@ pub async fn init() -> voxtide_core::Result<AppState> {
     let store = Store::open(&dir.join("voxtide.db")).await?;
     Ok(AppState {
         controller: Arc::new(SessionController::new(store)),
-        keychain: Keychain::new("com.voxtide.desktop"),
+        keychain: Keychain::new(dir.join("secrets.json")),
         config: ConfigStore::at(dir.join("config.json")),
     })
 }

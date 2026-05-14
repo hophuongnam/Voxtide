@@ -15,7 +15,7 @@ pub enum Error {
     Migration(#[from] sqlx::migrate::MigrateError),
 
     #[error("keychain: {0}")]
-    Keychain(#[from] keyring::Error),
+    Keychain(String),
 
     #[error("config: {0}")]
     Config(String),
