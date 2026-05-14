@@ -1,6 +1,13 @@
 /target
 **/*.rs.bk
 Cargo.lock
+*.rlib
 .DS_Store
 .env
 .env.local
+node_modules/
+dist/
+.svelte-kit/
+
+# Tauri 2 regenerates these from capabilities/ on every build (acl-manifests.json + *-schema.json)
+/src-tauri/gen/schemas/

@@ -64,12 +64,26 @@ pub struct StartArgs {
     pub device_label: Option<String>,
 }
 
+/// Tri-state slot that prevents TOCTOU races in [`SessionController::start`].
+///
+/// The transition is always `Idle → Pending → Running` (on success) or
+/// `Pending → Idle` (on any error between the two). A second concurrent
+/// `start()` sees `Pending` and returns `Err` immediately, so no race is
+/// possible even across `await` points.
+enum RunState {
+    Idle,
+    /// `start()` is in progress; async setup is executing.
+    Pending,
+    /// A session is live. Holds the handles needed to stop it.
+    Running(RunningSession),
+}
+
 /// Orchestrates one in-flight session at a time. Cheap to clone the `Arc<Store>`; the controller
 /// itself is owned by the Tauri app state.
 pub struct SessionController {
     store: Arc<Store>,
     tx: broadcast::Sender<CoreEvent>,
-    running: parking_lot::Mutex<Option<RunningSession>>,
+    running: parking_lot::Mutex<RunState>,
 }
 
 struct RunningSession {
@@ -81,13 +95,30 @@ struct RunningSession {
     stop_worker: tokio::sync::oneshot::Sender<()>,
 }
 
+/// RAII guard that resets the [`RunState`] slot back to [`RunState::Idle`] if
+/// `start()` returns early via `?` between setting the slot to `Pending` and
+/// completing the full setup. Disarmed on success by setting `armed = false`
+/// before the guard goes out of scope.
+struct StartGuard<'a> {
+    slot: &'a parking_lot::Mutex<RunState>,
+    armed: bool,
+}
+
+impl Drop for StartGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            *self.slot.lock() = RunState::Idle;
+        }
+    }
+}
+
 impl SessionController {
     pub fn new(store: Store) -> Self {
         let (tx, _) = broadcast::channel(256);
         Self {
             store: Arc::new(store),
             tx,
-            running: parking_lot::Mutex::new(None),
+            running: parking_lot::Mutex::new(RunState::Idle),
         }
     }
 
@@ -103,6 +134,23 @@ impl SessionController {
     }
 
     pub async fn start(&self, args: StartArgs) -> Result<i64> {
+        // Atomically claim the slot before any await point. If another start() is already in
+        // progress (Pending) or a session is running (Running), we reject immediately. Setting
+        // Pending here prevents a second concurrent future that also passes this check — both
+        // Pending and Running are treated as "already running".
+        {
+            let mut slot = self.running.lock();
+            match *slot {
+                RunState::Idle => *slot = RunState::Pending,
+                _ => return Err(crate::Error::Session("already running".into())),
+            }
+        }
+        // If any `?` below triggers, `guard` will reset the slot back to Idle on drop.
+        let mut guard = StartGuard {
+            slot: &self.running,
+            armed: true,
+        };
+
         let started_at = now_ms();
         let mode_str = match args.cfg.mode {
             Mode::Meeting => "meeting",
@@ -272,11 +320,13 @@ impl SessionController {
             let _ = provider.close().await;
         });
 
-        *self.running.lock() = Some(RunningSession {
+        *self.running.lock() = RunState::Running(RunningSession {
             join,
             stop_audio,
             stop_worker: stop_worker_tx,
         });
+        // Disarm: setup succeeded, do not reset the slot on drop.
+        guard.armed = false;
         Ok(session_id)
     }
 
@@ -284,8 +334,19 @@ impl SessionController {
     /// to exit, then waits up to 5 s for the worker task to finish. If it overruns we drop the
     /// handle and let it complete in the background rather than blocking the caller indefinitely.
     pub async fn stop(&self) -> Result<()> {
-        let running = self.running.lock().take();
-        if let Some(r) = running {
+        // Take the Running variant and reset to Idle in one lock operation.
+        let maybe_running = {
+            let mut slot = self.running.lock();
+            match std::mem::replace(&mut *slot, RunState::Idle) {
+                RunState::Running(r) => Some(r),
+                other => {
+                    // Restore whatever state we found (Idle or Pending) — we didn't take anything.
+                    *slot = other;
+                    None
+                }
+            }
+        };
+        if let Some(r) = maybe_running {
             let _ = r.stop_audio.send(());
             let _ = r.stop_worker.send(());
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), r.join).await;
