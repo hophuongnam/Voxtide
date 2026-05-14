@@ -3,11 +3,11 @@
   import type { Mode } from '../../types';
   interface Props { mode: Mode; }
   const { mode }: Props = $props();
-  const iconName = mode === 'meeting' ? 'speaker' : 'mic';
-  const title = mode === 'meeting' ? 'Ready to translate a meeting' : 'Ready for a conversation';
-  const body = mode === 'meeting'
+  const iconName = $derived(mode === 'meeting' ? 'speaker' : 'mic');
+  const title = $derived(mode === 'meeting' ? 'Ready to translate a meeting' : 'Ready for a conversation');
+  const body = $derived(mode === 'meeting'
     ? 'Voxtide will capture system audio from the selected source and translate the remote speaker into your language.'
-    : 'Voxtide will capture your microphone and translate two-way between the chosen language pair.';
+    : 'Voxtide will capture your microphone and translate two-way between the chosen language pair.');
 </script>
 
 <div class="flex-1 flex flex-col items-center justify-center p-6 gap-3.5">

@@ -11,7 +11,7 @@
   }
   const { mode, selected, options, onselect }: Props = $props();
   let open = $state(false);
-  const iconName = mode === 'meeting' ? 'speaker' : 'mic';
+  const iconName = $derived(mode === 'meeting' ? 'speaker' : 'mic');
 </script>
 
 <div class="relative inline-block">

@@ -5,15 +5,17 @@
 
   interface Props { row: SessionRow; active: boolean; onclick: () => void; preview?: string; }
   const { row, active, onclick, preview = '' }: Props = $props();
-  const time = formatTime(row.started_at);
-  const dur = row.duration_ms ? formatDuration(row.duration_ms) : '—';
+  const time = $derived(formatTime(row.started_at));
+  const dur = $derived(row.duration_ms ? formatDuration(row.duration_ms) : '—');
 </script>
 
-<div
+<button
+  type="button"
   data-active={active}
-  class="px-[9px] py-2 rounded-md mb-[2px] cursor-pointer"
+  class="px-[9px] py-2 rounded-md mb-[2px] cursor-pointer w-full text-left"
   style:background={active ? 'var(--vt-surface2)' : 'transparent'}
   style:border={`0.5px solid ${active ? 'var(--vt-border)' : 'transparent'}`}
+  style:outline="none"
   onclick={onclick}>
   <div class="flex items-center justify-between mb-1">
     <span class="text-[11px]" style:color="var(--vt-muted)">{time}</span>
@@ -45,4 +47,4 @@
          style:-webkit-line-clamp="2"
          style:-webkit-box-orient="vertical">{preview}</div>
   {/if}
-</div>
+</button>

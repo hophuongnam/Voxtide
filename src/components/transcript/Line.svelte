@@ -4,7 +4,7 @@
   import type { TranscriptLine } from '../../types';
   interface Props { line: TranscriptLine; translated?: boolean; }
   const { line, translated = false }: Props = $props();
-  const ts = formatTime(line.ts_ms);
+  const ts = $derived(formatTime(line.ts_ms));
 </script>
 
 <div class="py-2.5 px-4 grid gap-2.5"
