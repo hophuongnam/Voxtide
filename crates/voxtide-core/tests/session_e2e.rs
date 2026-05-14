@@ -98,3 +98,63 @@ async fn session_persists_finals_and_emits_events() {
     assert_eq!(tokens[0].text, "Hello");
     assert_eq!(tokens[1].text, "Xin chào");
 }
+
+#[tokio::test]
+async fn active_session_id_tracks_running_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+    let provider = Box::new(MockProvider::with_script(vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Final {
+            text: "Hello".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 100,
+        },
+        TranslationEvent::Stopped,
+    ]));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    assert_eq!(ctl.active_session_id(), None, "idle before start");
+
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+                mine: WhichLang::B,
+            },
+            source: wav,
+            provider,
+            device_label: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        ctl.active_session_id(),
+        Some(session_id),
+        "running after start()"
+    );
+
+    while let Ok(ev) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        let Ok(ev) = ev else {
+            break;
+        };
+        if matches!(ev, CoreEvent::SessionStopped { .. }) {
+            break;
+        }
+    }
+
+    // The worker transitions RunState back to Idle after SessionStopped fires.
+    // Give it a couple of scheduler ticks to settle before asserting.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(ctl.active_session_id(), None, "idle again after stop");
+}

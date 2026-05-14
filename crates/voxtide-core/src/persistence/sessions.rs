@@ -74,4 +74,12 @@ impl Sessions {
         .await?;
         Ok(row)
     }
+
+    pub async fn delete(pool: &SqlitePool, id: i64) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }

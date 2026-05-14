@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent } from '@testing-library/svelte';
 import Sidebar from '../src/components/sidebar/Sidebar.svelte';
 
 describe('Sidebar', () => {
@@ -24,5 +24,33 @@ describe('Sidebar', () => {
       props: { sessions, activeId: 2, onselect: () => {}, onsearch: () => {}, query: '' },
     });
     expect(container.querySelector('[data-active="true"]')).toBeTruthy();
+  });
+
+  it('hides the trash button on the live session row', () => {
+    const live = [{ ...sessions[0]!, ended_at: null, duration_ms: 0 }];
+    const { container } = render(Sidebar, {
+      props: {
+        sessions: live, activeId: live[0]!.id,
+        onselect: () => {}, onsearch: () => {}, query: '',
+        ondeleterequest: () => {},
+      },
+    });
+    expect(container.querySelector('[data-testid="delete-session"]')).toBeNull();
+  });
+
+  it('shows the trash button on past rows and routes clicks to ondeleterequest', async () => {
+    const past = [{ ...sessions[0]!, ended_at: sessions[0]!.started_at + 60_000 }];
+    const ondeleterequest = vi.fn();
+    const { container } = render(Sidebar, {
+      props: {
+        sessions: past, activeId: past[0]!.id,
+        onselect: () => {}, onsearch: () => {}, query: '',
+        ondeleterequest,
+      },
+    });
+    const btn = container.querySelector('[data-testid="delete-session"]') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(ondeleterequest).toHaveBeenCalledWith(past[0]);
   });
 });

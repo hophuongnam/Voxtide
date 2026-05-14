@@ -47,3 +47,18 @@ pub async fn search_transcripts(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn delete_session(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    if state.controller.active_session_id() == Some(id) {
+        return Err("cannot delete an active session".into());
+    }
+    let pool = state.controller.store().pool().clone();
+    // We intentionally discard the bool — both "row removed" and "row not found"
+    // mean the same thing from the caller's perspective: the id is gone. The
+    // frontend just refreshes the list either way.
+    Sessions::delete(&pool, id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
