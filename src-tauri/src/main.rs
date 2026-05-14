@@ -27,6 +27,13 @@ async fn main() {
             commands::keychain::has_api_key,
             commands::keychain::set_api_key,
             commands::keychain::clear_api_key,
+            commands::config::get_config,
+            commands::config::set_config,
+            commands::devices::list_mics,
+            commands::devices::list_loopback_sources,
+            commands::sessions::list_sessions,
+            commands::sessions::get_session,
+            commands::sessions::search_transcripts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
