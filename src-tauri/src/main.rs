@@ -15,10 +15,22 @@ async fn main() {
     let app_state = state::init().await.expect("voxtide-core init");
     let app_state = Mutex::new(Some(app_state));
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
+        .on_window_event(|window, event| {
+            // macOS pattern: red-traffic-light closes the window but keeps the app
+            // running in the dock; dock-click re-shows it (handled in the run loop).
+            // Cmd+Q / "Quit Voxtide" fire ExitRequested, not CloseRequested, so quit
+            // still works as expected.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(move |app| {
             let state = app_state.lock().take().expect("AppState already taken");
             // Subscribe BEFORE handing state to Tauri so we hold a reference to the controller.
@@ -60,6 +72,25 @@ async fn main() {
             commands::overlay::hide_overlay,
             commands::overlay::set_overlay_click_through,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows, ..
+        } = event
+        {
+            if !has_visible_windows {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app_handle, event);
+        }
+    });
 }
