@@ -103,6 +103,13 @@ impl SessionController {
     }
 
     pub async fn start(&self, args: StartArgs) -> Result<i64> {
+        // Double-start guard: refuse if a session is already running. Without this, repeated
+        // calls would leak the prior `RunningSession`'s join handle and broadcast spurious
+        // SessionStarted events.
+        if self.running.lock().is_some() {
+            return Err(crate::Error::Session("already running".into()));
+        }
+
         let started_at = now_ms();
         let mode_str = match args.cfg.mode {
             Mode::Meeting => "meeting",

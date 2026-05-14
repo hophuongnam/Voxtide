@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("invalid url: {0}")]
     Url(#[from] url::ParseError),
+
+    #[error("session: {0}")]
+    Session(String),
 }
 
 impl From<tokio_tungstenite::tungstenite::Error> for Error {
