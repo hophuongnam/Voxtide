@@ -52,6 +52,9 @@ async fn main() {
             commands::sessions::search_transcripts,
             commands::lifecycle::start_session,
             commands::lifecycle::stop_session,
+            commands::overlay::show_overlay,
+            commands::overlay::hide_overlay,
+            commands::overlay::set_overlay_click_through,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
