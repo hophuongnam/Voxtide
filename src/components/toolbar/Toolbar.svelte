@@ -21,6 +21,7 @@
     b: { code: string; name: string };
     mine: WhichLang;
     onswap: () => void;
+    onlangpick: (which: WhichLang, code: string) => void;
     source: DeviceEntry | null;
     sourceOptions: DeviceEntry[];
     onsource: (d: DeviceEntry) => void;
@@ -39,7 +40,7 @@
   </div>
   <div class="w-px h-[18px] mx-1" style:background="var(--vt-border)"></div>
   <ModeToggle mode={p.mode} oninput={p.onmode} />
-  <div class="ml-2"><LangPair a={p.a} b={p.b} mine={p.mine} onswap={p.onswap} /></div>
+  <div class="ml-2"><LangPair a={p.a} b={p.b} mine={p.mine} onswap={p.onswap} onpick={p.onlangpick} /></div>
   <div class="ml-1.5">
     <AudioSourcePicker mode={p.mode} selected={p.source} options={p.sourceOptions} onselect={p.onsource} />
   </div>

@@ -18,15 +18,10 @@
     showOverlay, hideOverlay,
   } from '../lib/ipc';
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
+  import { LANG_NAMES } from '../lib/languages';
   import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
   import type { Mode, SessionRow, WhichLang } from '../types';
-
-  // Language lookup table — spec keeps it small.
-  const LANG_NAMES: Record<string, string> = {
-    en: 'English', vi: 'Vietnamese', ja: 'Japanese', ko: 'Korean',
-    es: 'Spanish', de: 'German', fr: 'French', zh: 'Chinese',
-  };
 
   let mode = $state<Mode>('meeting');
   let sessions = $state<SessionRow[]>([]);
@@ -172,6 +167,14 @@
     await setConfig(next);
     config.setConfig(next);
   }
+  async function onLangPick(which: WhichLang, code: string) {
+    const c = config.config!;
+    if (which === 'a' && code === c.language_b) return;
+    if (which === 'b' && code === c.language_a) return;
+    const next = which === 'a' ? { ...c, language_a: code } : { ...c, language_b: code };
+    await setConfig(next);
+    config.setConfig(next);
+  }
   async function onOverlayToggle() {
     if (overlayShown) { await hideOverlay(); overlayShown = false; }
     else              { await showOverlay(); overlayShown = true;  }
@@ -191,6 +194,7 @@
     overlayShown={overlayShown}
     a={langA} b={langB} {mine}
     onswap={onSwap}
+    onlangpick={onLangPick}
     source={selectedSource}
     sourceOptions={mode === 'meeting' ? meetingSources : micSources}
     onsource={(d) => selectedSource = d} />

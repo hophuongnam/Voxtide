@@ -17,6 +17,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 import SettingsSheet from '../src/components/settings/SettingsSheet.svelte';
+import { config } from '../src/lib/stores.svelte';
 
 describe('SettingsSheet', () => {
   it('saves an API key when Save is pressed', async () => {
@@ -29,12 +30,43 @@ describe('SettingsSheet', () => {
     expect(invokeMock).toHaveBeenCalledWith('set_api_key', { account: 'default', secret: 'sk_live_test' });
   });
 
+  it('saving the API key updates the global config.hasApiKey store', async () => {
+    config.setHasApiKey(false);
+    const { findByLabelText, findByText } = render(SettingsSheet, {
+      props: { open: true, onclose: () => {} },
+    });
+    const input = await findByLabelText('Soniox API key') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'sk_live_test' } });
+    await fireEvent.click(await findByText('Save'));
+    // The reload() that fires after save must push hasApiKey=true to the global store
+    // so MainApp's onStart guard (which reads config.hasApiKey) doesn't bail out.
+    await new Promise(r => setTimeout(r, 10));
+    expect(config.hasApiKey).toBe(true);
+  });
+
   it('switches theme', async () => {
     const { findByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
     await fireEvent.click(await findByText('dark'));
     // theme change persists via set_config
     expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
       cfg: expect.objectContaining({ theme: 'dark' }),
+    }));
+  });
+
+  it('changing language A select persists via set_config', async () => {
+    const { findByLabelText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    const sel = await findByLabelText('Language A code') as HTMLSelectElement;
+    await fireEvent.change(sel, { target: { value: 'ja' } });
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ language_a: 'ja' }),
+    }));
+  });
+
+  it('clicking "Make mine" on Language A pill persists via set_config', async () => {
+    const { findByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    await fireEvent.click(await findByText('Make mine'));  // default cfg has mine='b', so A shows "Make mine"
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ mine: 'a' }),
     }));
   });
 });

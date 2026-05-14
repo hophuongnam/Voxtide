@@ -5,6 +5,8 @@
   import HotkeySection from './HotkeySection.svelte';
   import AppearanceSection from './AppearanceSection.svelte';
   import { getConfig, hasApiKey, setConfig } from '../../lib/ipc';
+  import { config } from '../../lib/stores.svelte';
+  import { applyTheme } from '../../theme/theme';
   import type { AppConfig } from '../../types';
 
   interface Props { open: boolean; onclose: () => void; }
@@ -16,12 +18,16 @@
   async function reload() {
     cfg = await getConfig();
     keyPresent = await hasApiKey(account);
+    config.setHasApiKey(keyPresent);
   }
 
   $effect(() => { if (open) reload(); });
 
   async function onChange(next: AppConfig) {
+    const prev = cfg;
     cfg = next;
+    config.setConfig(next);
+    if (!prev || prev.theme !== next.theme) applyTheme(next.theme);
     await setConfig(next);
   }
 </script>
