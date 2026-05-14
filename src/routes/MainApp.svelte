@@ -9,6 +9,7 @@
   import StatusBar from '../components/status/StatusBar.svelte';
   import SettingsSheet from '../components/settings/SettingsSheet.svelte';
 
+  import PermissionBanner from '../components/PermissionBanner.svelte';
   import { applyTheme } from '../theme/theme';
   import {
     getConfig, hasApiKey, listLoopbackSources, listMics, listSessions,
@@ -34,6 +35,7 @@
   let elapsedMs = $state(0);
   let mainWidth = $state(920);
   let selectedSource = $state<DeviceEntry | null>(null);
+  let permissionKind = $state<'mic' | 'audio-capture' | null>(null);
 
   const langA = $derived({ code: (config.config?.language_a ?? 'en').toUpperCase(),
                            name: LANG_NAMES[config.config?.language_a ?? 'en'] ?? '' });
@@ -98,14 +100,22 @@
   async function onStart() {
     if (!config.hasApiKey || !config.config || !selectedSource) return;
     transcript.reset();
-    await startSession({
-      mode,
-      language_a: config.config.language_a,
-      language_b: config.config.language_b,
-      mine: config.config.mine,
-      device_id: selectedSource.id,
-      api_key_account: config.apiKeyAccount,
-    });
+    try {
+      await startSession({
+        mode,
+        language_a: config.config.language_a,
+        language_b: config.config.language_b,
+        mine: config.config.mine,
+        device_id: selectedSource.id,
+        api_key_account: config.apiKeyAccount,
+      });
+      permissionKind = null;
+    } catch (e) {
+      const msg = String(e).toLowerCase();
+      if (msg.includes('mic') || msg.includes('microphone')) permissionKind = 'mic';
+      else if (msg.includes('audio capture') || msg.includes('sckit')) permissionKind = 'audio-capture';
+      else throw e;
+    }
   }
 
   async function onStop()       { await stopSession(); }
@@ -137,6 +147,8 @@
     source={selectedSource}
     sourceOptions={mode === 'meeting' ? meetingSources : micSources}
     onsource={(d) => selectedSource = d} />
+
+  <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
 
   <div class="flex-1 flex overflow-hidden">
     <Sidebar

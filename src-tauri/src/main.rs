@@ -16,6 +16,7 @@ async fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
         .setup(move |app| {
             let state = app_state.lock().take().expect("AppState already taken");

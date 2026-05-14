@@ -9,6 +9,8 @@
     "core:window:default",
     "core:webview:default",
     "global-shortcut:default",
+    "opener:default",
+    "opener:allow-open-url",
     "positioner:default"
   ]
 }
