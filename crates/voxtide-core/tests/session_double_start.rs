@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use voxtide_core::audio::mock::WavSource;
 use voxtide_core::persistence::Store;
@@ -71,5 +72,75 @@ async fn second_start_without_stop_returns_already_running() {
     );
 
     // Clean up: stop the first session so the test doesn't leave dangling tasks.
+    ctl.stop().await.unwrap();
+}
+
+/// Drives two concurrent `start()` futures via `tokio::join!` and asserts that exactly one
+/// succeeds and the other returns the "already running" error. This is the definitive test for
+/// the TOCTOU fix: before the tri-state `RunState` guard, both futures could pass the original
+/// `is_some()` check simultaneously and both proceed.
+#[tokio::test]
+async fn concurrent_starts_exactly_one_ok_one_already_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+    // Wrap in Arc so both futures can share the controller.
+    let ctl = Arc::new(SessionController::new(store));
+
+    let ctl_a = ctl.clone();
+    let ctl_b = ctl.clone();
+
+    let fut_a = async move {
+        ctl_a
+            .start(StartArgs {
+                cfg: make_cfg(),
+                source: Box::new(
+                    WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap(),
+                ),
+                provider: make_provider(),
+                device_label: None,
+            })
+            .await
+    };
+
+    let fut_b = async move {
+        ctl_b
+            .start(StartArgs {
+                cfg: make_cfg(),
+                source: Box::new(
+                    WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap(),
+                ),
+                provider: make_provider(),
+                device_label: None,
+            })
+            .await
+    };
+
+    let (res_a, res_b) = tokio::join!(fut_a, fut_b);
+
+    // Exactly one must succeed and one must fail with "already running".
+    let ok_count = [res_a.is_ok(), res_b.is_ok()]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+    let err_count = [res_a.is_err(), res_b.is_err()]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+
+    assert_eq!(ok_count, 1, "exactly one start should succeed");
+    assert_eq!(err_count, 1, "exactly one start should fail");
+
+    // Verify the error carries the expected message.
+    let err_msg = if res_a.is_err() {
+        res_a.unwrap_err().to_string()
+    } else {
+        res_b.unwrap_err().to_string()
+    };
+    assert!(
+        err_msg.contains("already running"),
+        "error should mention 'already running', got: {err_msg}"
+    );
+
+    // Clean up.
     ctl.stop().await.unwrap();
 }
