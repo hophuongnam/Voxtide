@@ -1,0 +1,30 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use voxtide_core::config::ConfigStore;
+use voxtide_core::persistence::Store;
+use voxtide_core::session::SessionController;
+use voxtide_core::Keychain;
+
+pub struct AppState {
+    pub controller: Arc<SessionController>,
+    pub keychain: Keychain,
+    pub config: ConfigStore,
+}
+
+pub fn data_dir() -> PathBuf {
+    dirs::data_dir()
+        .map(|d| d.join("Voxtide"))
+        .unwrap_or_else(|| PathBuf::from("./voxtide-data"))
+}
+
+pub async fn init() -> voxtide_core::Result<AppState> {
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir)?;
+    let store = Store::open(&dir.join("voxtide.db")).await?;
+    Ok(AppState {
+        controller: Arc::new(SessionController::new(store)),
+        keychain: Keychain::new("com.voxtide.desktop"),
+        config: ConfigStore::at(dir.join("config.json")),
+    })
+}
