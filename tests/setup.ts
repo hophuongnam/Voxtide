@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import '@testing-library/svelte/vitest';
 
 // jsdom doesn't implement matchMedia.
 if (typeof window !== 'undefined' && !window.matchMedia) {

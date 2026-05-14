@@ -1,9 +1,7 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, fireEvent, cleanup } from '@testing-library/svelte';
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent } from '@testing-library/svelte';
 import ModeToggle from '../src/components/toolbar/ModeToggle.svelte';
 import PrimaryBtn from '../src/components/toolbar/PrimaryBtn.svelte';
-
-afterEach(() => cleanup());
 
 describe('ModeToggle', () => {
   it('marks the active mode with aria-pressed', () => {
