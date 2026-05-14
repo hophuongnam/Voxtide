@@ -13,10 +13,12 @@
   import { applyTheme } from '../theme/theme';
   import { listen } from '@tauri-apps/api/event';
   import {
+    deleteSession,
     getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
     onCoreEvent, searchTranscripts, setConfig, startSession, stopSession,
     showOverlay, hideOverlay,
   } from '../lib/ipc';
+  import ConfirmDeleteSheet from '../components/sidebar/ConfirmDeleteSheet.svelte';
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
   import { LANG_NAMES } from '../lib/languages';
   import type { TranscriptLine } from '../types';
@@ -38,6 +40,43 @@
   let viewingId = $state<number | null>(null);
   let pastOriginal = $state<TranscriptLine[]>([]);
   let pastTranslation = $state<TranscriptLine[]>([]);
+
+  // Delete-transcript flow.
+  let pendingDelete = $state<SessionRow | null>(null);
+  let deleting = $state(false);
+  let deleteError = $state<string | null>(null);
+
+  function onDeleteRequest(row: SessionRow) {
+    pendingDelete = row;
+    deleteError = null;
+  }
+  function onDeleteCancel() {
+    pendingDelete = null;
+    deleteError = null;
+  }
+  async function onDeleteConfirm() {
+    const target = pendingDelete;
+    if (!target) return;
+    deleting = true;
+    deleteError = null;
+    try {
+      await deleteSession(target.id);
+      // Drop from sidebar list immediately and re-fetch authoritative state.
+      sessions = sessions.filter(s => s.id !== target.id);
+      searchHits = searchHits.filter(s => s.id !== target.id);
+      if (viewingId === target.id) {
+        viewingId = null;
+        pastOriginal = [];
+        pastTranslation = [];
+      }
+      sessions = await listSessions();
+      pendingDelete = null;
+    } catch (e) {
+      deleteError = String(e instanceof Error ? e.message : e);
+    } finally {
+      deleting = false;
+    }
+  }
 
   async function onSelectSession(id: number) {
     // Clicking the currently-recording session returns to the live view.
@@ -207,7 +246,8 @@
       activeId={viewingId ?? session.sessionId}
       onselect={onSelectSession}
       onsearch={onSearch}
-      query={query} />
+      query={query}
+      ondeleterequest={onDeleteRequest} />
 
     <div class="flex-1 flex flex-col min-w-0">
       {#if !config.hasApiKey}
@@ -255,3 +295,10 @@
 </VoxWindow>
 
 <SettingsSheet open={settingsOpen} onclose={() => settingsOpen = false} />
+<ConfirmDeleteSheet
+  open={pendingDelete !== null}
+  target={pendingDelete}
+  busy={deleting}
+  error={deleteError}
+  onconfirm={onDeleteConfirm}
+  oncancel={onDeleteCancel} />
