@@ -22,5 +22,8 @@ parking_lot.workspace = true
 async-trait.workspace = true
 dirs = "5"
 
+[dev-dependencies]
+tokio = { workspace = true }
+
 [features]
 default = []

@@ -24,7 +24,9 @@ async fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Filled by Tasks 13–16.
+            commands::keychain::has_api_key,
+            commands::keychain::set_api_key,
+            commands::keychain::clear_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
