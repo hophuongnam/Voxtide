@@ -40,4 +40,10 @@ describe('ipc command wrappers', () => {
     expect(hits).toHaveLength(1);
     expect(invokeMock).toHaveBeenCalledWith('search_transcripts', { query: 'hello', limit: 50 });
   });
+
+  it('deleteSession sends id', async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    await ipc.deleteSession(42);
+    expect(invokeMock).toHaveBeenCalledWith('delete_session', { id: 42 });
+  });
 });

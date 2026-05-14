@@ -32,6 +32,8 @@ export const getSession = (id: number) =>
 export interface SearchHit { id: number; session_id: number; ts_ms: number; text: string; }
 export const searchTranscripts = (query: string, limit = 50) =>
   invoke<SearchHit[]>('search_transcripts', { query, limit });
+export const deleteSession = (id: number) =>
+  invoke<void>('delete_session', { id });
 
 // --- devices --------------------------------------------------------------
 export interface DeviceEntry { id: string; label: string; default: boolean; }
