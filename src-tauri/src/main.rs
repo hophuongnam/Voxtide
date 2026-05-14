@@ -18,8 +18,24 @@ async fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_positioner::init())
         .setup(move |app| {
-            // Hand state off to Tauri.
             let state = app_state.lock().take().expect("AppState already taken");
+            // Subscribe BEFORE handing state to Tauri so we hold a reference to the controller.
+            // This single persistent forwarder replaces the per-call spawns that were previously
+            // in `lifecycle::start_session`, which leaked one task per start/stop cycle.
+            let mut rx = state.controller.subscribe();
+            let app_handle = app.handle().clone();
+            tokio::spawn(async move {
+                loop {
+                    match rx.recv().await {
+                        Ok(ev) => crate::events::forward(&app_handle, ev),
+                        // Lagged: some events were dropped because we fell behind the sender.
+                        // Treat as a refresh signal — continue rather than breaking.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        // Channel closed (controller dropped). Forwarder task can exit.
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
             app.manage(state);
             Ok(())
         })

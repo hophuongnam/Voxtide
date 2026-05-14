@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use voxtide_core::audio::{mic::MicSource, AudioSource};
 use voxtide_core::session::StartArgs;
@@ -19,30 +19,24 @@ pub struct StartReq {
 }
 
 #[tauri::command]
-pub async fn start_session(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    req: StartReq,
-) -> Result<i64, String> {
+pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<i64, String> {
     let api_key = state
         .keychain
         .get(&req.api_key_account)
         .map_err(|e| e.to_string())?;
+    // For Conversation mode, fall back to the default microphone when no specific device is
+    // requested. An empty `device_id` from the frontend means "use the system default".
     let source: Box<dyn AudioSource> = match req.mode {
-        Mode::Conversation => Box::new(MicSource::by_id(&req.device_id)),
+        Mode::Conversation => {
+            if req.device_id.is_empty() {
+                Box::new(MicSource::default_device().map_err(|e| e.to_string())?)
+            } else {
+                Box::new(MicSource::by_id(&req.device_id))
+            }
+        }
         Mode::Meeting => loopback_source(&req.device_id)?,
     };
     let provider = Box::new(SonioxBYOK::new());
-
-    // Subscribe before start so we don't miss the first event.
-    let mut rx = state.controller.subscribe();
-    let app_for_fwd = app.clone();
-    tokio::spawn(async move {
-        while let Ok(ev) = rx.recv().await {
-            crate::events::forward(&app_for_fwd, ev);
-        }
-    });
-
     let cfg = SessionConfig {
         api_key,
         mode: req.mode,
