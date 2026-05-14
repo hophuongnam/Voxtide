@@ -1,5 +1,4 @@
 <script lang="ts">
-  import TrafficLights from '../chrome/TrafficLights.svelte';
   import WaveGlyph from '../icons/WaveGlyph.svelte';
   import ModeToggle from './ModeToggle.svelte';
   import LangPair from './LangPair.svelte';
@@ -31,8 +30,6 @@
 
 <div class="h-12 flex items-center gap-2.5 px-3"
      style:border-bottom="0.5px solid var(--vt-border)" style:background="var(--vt-bg)">
-  <TrafficLights />
-  <div class="w-px h-[18px] mx-1" style:background="var(--vt-border)"></div>
   <div class="flex items-center gap-[7px]">
     <div class="w-[18px] h-[18px] rounded-[5px] flex items-center justify-center"
          style:background="linear-gradient(135deg, var(--vt-accent), var(--vt-accent-dim))">
