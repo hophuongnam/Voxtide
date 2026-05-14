@@ -19,6 +19,9 @@
   --vt-accent-tint-50: oklch(0.80 0.13 205 / 0.50);
   --vt-rec: oklch(0.72 0.20 25);
   --vt-rec-glow: oklch(0.72 0.20 25 / 0.20);
+  --vt-danger: oklch(0.68 0.20 25);
+  --vt-danger-ink: oklch(0.99 0.005 25);
+  --vt-danger-hover: oklch(0.62 0.22 25);
   --vt-warn: oklch(0.82 0.14 80);
   --vt-warn-tint: oklch(0.82 0.14 80 / 0.10);
   --vt-warn-border: oklch(0.82 0.14 80 / 0.4);
@@ -60,6 +63,9 @@
   --vt-accent-tint-50: oklch(0.55 0.16 205 / 0.50);
   --vt-rec: oklch(0.55 0.20 25);
   --vt-rec-glow: oklch(0.55 0.20 25 / 0.18);
+  --vt-danger: oklch(0.52 0.20 25);
+  --vt-danger-ink: oklch(0.99 0.005 25);
+  --vt-danger-hover: oklch(0.46 0.22 25);
   --vt-warn: oklch(0.65 0.16 80);
   --vt-warn-tint: oklch(0.65 0.16 80 / 0.12);
   --vt-warn-border: oklch(0.65 0.16 80 / 0.45);
