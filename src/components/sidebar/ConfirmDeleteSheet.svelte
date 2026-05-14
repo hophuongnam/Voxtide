@@ -18,6 +18,7 @@
 
   function onOverlay() { if (!busy) oncancel(); }
   function onKey(e: KeyboardEvent) { if (e.key === 'Escape' && !busy) oncancel(); }
+  function onDialogKey(e: KeyboardEvent) { if (e.key === 'Escape') { e.stopPropagation(); if (!busy) oncancel(); } }
 </script>
 
 {#if open && target}
@@ -32,7 +33,7 @@
          style:border="0.5px solid var(--vt-border)"
          style:box-shadow="var(--vt-window-shadow)"
          onclick={(e) => e.stopPropagation()}
-         onkeydown={(e) => e.stopPropagation()}>
+         onkeydown={onDialogKey}>
       <div class="text-[14px] font-semibold mb-2" style:color="var(--vt-text)">
         Delete this transcript?
       </div>

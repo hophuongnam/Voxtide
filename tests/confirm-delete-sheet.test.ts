@@ -94,6 +94,19 @@ describe('ConfirmDeleteSheet', () => {
     expect(onconfirm).not.toHaveBeenCalled();
   });
 
+  it('Esc from inside the dialog also fires oncancel', async () => {
+    const oncancel = vi.fn();
+    const { container } = render(ConfirmDeleteSheet, {
+      props: {
+        open: true, target: row, busy: false, error: null,
+        onconfirm: () => {}, oncancel,
+      },
+    });
+    const dialog = container.querySelector('[role="dialog"]')!;
+    await fireEvent.keyDown(dialog, { key: 'Escape', bubbles: true });
+    expect(oncancel).toHaveBeenCalledOnce();
+  });
+
   it('renders error text when error is set', () => {
     const { getByText } = render(ConfirmDeleteSheet, {
       props: {
