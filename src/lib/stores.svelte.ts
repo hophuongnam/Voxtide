@@ -37,9 +37,8 @@ export function coalesceTokens(tokens: TokenRow[]): {
     const status = asStatus(t.status);
     const list = status === 'translation' ? out.translation : out.original;
     const last = list[list.length - 1];
-    const sentenceEnd = last && /[.!?]\s*$/.test(last.text);
     const chip = chipFor(t.speaker);
-    if (last && last.chip === chip && !sentenceEnd) {
+    if (last && last.chip === chip) {
       list[list.length - 1] = { ...last, text: last.text + t.text };
       continue;
     }
@@ -91,8 +90,11 @@ export function createTranscriptStore(): TranscriptStore {
     final(input) {
       const list = input.status === 'translation' ? translation : original;
       const last = list[list.length - 1];
-      const sentenceEnd = last && /[.!?]\s*$/.test(last.text);
-      if (last && last.chip === input.chip && !sentenceEnd) {
+      // Break only on speaker change. We intentionally do NOT break on sentence-end
+      // punctuation: ASCII `.!?` vs CJK `。！？` would tokenize asymmetrically across
+      // languages, so the original/translation columns would have different row
+      // counts. One speaker turn = one row in both columns guarantees alignment.
+      if (last && last.chip === input.chip) {
         const merged: TranscriptLine = { ...last, text: last.text + input.text };
         const next = list.slice(0, -1).concat(merged);
         if (input.status === 'translation') { translation = next; liveTranslation = ''; }
