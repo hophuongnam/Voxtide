@@ -53,9 +53,13 @@ impl Tokens {
     }
 
     pub async fn list_by_session(pool: &SqlitePool, session_id: i64) -> Result<Vec<TokenRow>> {
+        // Secondary sort by id (autoincrement = insertion order). Without it,
+        // tokens sharing a ts_ms have indeterminate order — past-session view
+        // could flip speaker A↔B chips between re-queries, since chip
+        // assignment in the frontend uses first-seen order.
         let rows = sqlx::query_as::<_, TokenRow>(
             "SELECT id, session_id, ts_ms, text, language, status, speaker \
-             FROM tokens WHERE session_id = ? ORDER BY ts_ms ASC",
+             FROM tokens WHERE session_id = ? ORDER BY ts_ms ASC, id ASC",
         )
         .bind(session_id)
         .fetch_all(pool)

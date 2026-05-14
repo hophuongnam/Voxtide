@@ -47,8 +47,7 @@
   async function onSelectSession(id: number) {
     // Clicking the currently-recording session returns to the live view.
     if (session.recording && id === session.sessionId) {
-      viewingId = null;
-      pastOriginal = []; pastTranslation = [];
+      onReturnToLive();
       return;
     }
     try {
@@ -60,6 +59,11 @@
     } catch (e) {
       console.error('getSession failed', e);
     }
+  }
+
+  function onReturnToLive() {
+    viewingId = null;
+    pastOriginal = []; pastTranslation = [];
   }
 
   const langA = $derived({ code: (config.config?.language_a ?? 'en').toUpperCase(),
@@ -205,6 +209,18 @@
       {#if !config.hasApiKey}
         <NoApiKey onaddkey={() => settingsOpen = true} />
       {:else if viewingId !== null}
+        {#if session.recording}
+          <button type="button" onclick={onReturnToLive}
+                  class="px-4 py-2 flex items-center gap-3 cursor-pointer w-full text-left border-0"
+                  style:background="var(--vt-accent-tint-10)"
+                  style:border-bottom="0.5px solid var(--vt-accent-tint-25)">
+            <span class="block w-2 h-2 rounded-full"
+                  style:background="var(--vt-rec)"
+                  style:box-shadow="0 0 0 3px var(--vt-rec-glow)"></span>
+            <span class="text-[12px] font-semibold" style:color="var(--vt-text)">Recording in progress</span>
+            <span class="ml-auto text-[12px] font-semibold" style:color="var(--vt-accent)">Return to live →</span>
+          </button>
+        {/if}
         <TranscriptPane
           {mode} a={langA} b={langB} {mine}
           original={pastOriginal}
