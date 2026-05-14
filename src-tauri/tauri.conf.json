@@ -39,6 +39,7 @@
   },
   "bundle": {
     "active": true,
+    "targets": ["app", "dmg", "msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -47,6 +48,17 @@
       "icons/icon.ico"
     ],
     "category": "Productivity",
-    "shortDescription": "Real-time speech translation"
+    "shortDescription": "Real-time speech translation",
+    "longDescription": "Voxtide captures live audio from your microphone or system output and renders real-time speech translation via Soniox.",
+    "publisher": "Nam Ho",
+    "homepage": "https://github.com/hophuongnam/Voxtide",
+    "copyright": "Copyright © 2026 Nam Ho",
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "exceptionDomain": "stt-rt.soniox.com"
+    },
+    "windows": {
+      "wix": { "language": "en-US" }
+    }
   }
 }
