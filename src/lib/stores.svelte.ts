@@ -1,4 +1,5 @@
-import type { TranscriptLine, TranslationStatus } from '../types';
+import type { AppConfig, TranscriptLine, TranslationStatus } from '../types';
+import type { DeviceEntry } from './ipc';
 
 export interface LiveInput {
   status: TranslationStatus;
@@ -101,3 +102,45 @@ export function createSessionStore(): SessionStore {
 // independently; it does not share these instances.
 export const transcript = createTranscriptStore();
 export const session = createSessionStore();
+
+export interface ConfigStore {
+  readonly config: AppConfig | null;
+  readonly hasApiKey: boolean;
+  readonly apiKeyAccount: string;
+  setConfig(c: AppConfig | null): void;
+  setHasApiKey(v: boolean): void;
+}
+
+export function createConfigStore(): ConfigStore {
+  let config = $state<AppConfig | null>(null);
+  let hasApiKey = $state(false);
+  const apiKeyAccount = 'default';
+  return {
+    get config() { return config; },
+    get hasApiKey() { return hasApiKey; },
+    get apiKeyAccount() { return apiKeyAccount; },
+    setConfig(c) { config = c; },
+    setHasApiKey(v) { hasApiKey = v; },
+  };
+}
+
+export interface DevicesStore {
+  readonly mics: DeviceEntry[];
+  readonly loopbacks: DeviceEntry[];
+  setMics(v: DeviceEntry[]): void;
+  setLoopbacks(v: DeviceEntry[]): void;
+}
+
+export function createDevicesStore(): DevicesStore {
+  let mics = $state<DeviceEntry[]>([]);
+  let loopbacks = $state<DeviceEntry[]>([]);
+  return {
+    get mics() { return mics; },
+    get loopbacks() { return loopbacks; },
+    setMics(v) { mics = v; },
+    setLoopbacks(v) { loopbacks = v; },
+  };
+}
+
+export const config = createConfigStore();
+export const devices = createDevicesStore();
