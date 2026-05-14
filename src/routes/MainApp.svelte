@@ -13,11 +13,12 @@
   import { applyTheme } from '../theme/theme';
   import { listen } from '@tauri-apps/api/event';
   import {
-    getConfig, hasApiKey, listLoopbackSources, listMics, listSessions,
+    getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
     onCoreEvent, searchTranscripts, setConfig, startSession, stopSession,
     showOverlay, hideOverlay,
   } from '../lib/ipc';
-  import { transcript, session, config, devices } from '../lib/stores.svelte';
+  import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
+  import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
   import type { Mode, SessionRow, WhichLang } from '../types';
 
@@ -38,6 +39,29 @@
   let selectedSource = $state<DeviceEntry | null>(null);
   let permissionKind = $state<'mic' | 'audio-capture' | null>(null);
 
+  // Past-session viewer. null = follow live capture; otherwise show pastOriginal/pastTranslation.
+  let viewingId = $state<number | null>(null);
+  let pastOriginal = $state<TranscriptLine[]>([]);
+  let pastTranslation = $state<TranscriptLine[]>([]);
+
+  async function onSelectSession(id: number) {
+    // Clicking the currently-recording session returns to the live view.
+    if (session.recording && id === session.sessionId) {
+      viewingId = null;
+      pastOriginal = []; pastTranslation = [];
+      return;
+    }
+    try {
+      const { tokens } = await getSession(id);
+      const { original, translation } = coalesceTokens(tokens);
+      pastOriginal = original;
+      pastTranslation = translation;
+      viewingId = id;
+    } catch (e) {
+      console.error('getSession failed', e);
+    }
+  }
+
   const langA = $derived({ code: (config.config?.language_a ?? 'en').toUpperCase(),
                            name: LANG_NAMES[config.config?.language_a ?? 'en'] ?? '' });
   const langB = $derived({ code: (config.config?.language_b ?? 'vi').toUpperCase(),
@@ -47,6 +71,15 @@
   const meetingSources = $derived(devices.loopbacks);
   const micSources     = $derived(devices.mics);
 
+  $effect(() => {
+    const list = mode === 'meeting' ? devices.loopbacks : devices.mics;
+    const first = list[0];
+    if (!first) return;
+    if (!selectedSource || !list.some(s => s.id === selectedSource!.id)) {
+      selectedSource = first;
+    }
+  });
+
   function refreshSources() {
     listLoopbackSources().then(v => devices.setLoopbacks(v)).catch(() => {});
     listMics().then(v => devices.setMics(v)).catch(() => {});
@@ -54,7 +87,11 @@
 
   function handleCoreEvent(ev: CoreEvent) {
     switch (ev.kind) {
-      case 'session-started': session.start(ev.session_id, Date.now()); break;
+      case 'session-started':
+        session.start(ev.session_id, Date.now());
+        // Snap to live view when a new capture starts so the user sees what they just initiated.
+        viewingId = null; pastOriginal = []; pastTranslation = [];
+        break;
       case 'session-stopped': session.stop(); listSessions().then(v => sessions = v); break;
       case 'transcript-live':
         transcript.live({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip }); break;
@@ -159,14 +196,21 @@
   <div class="flex-1 flex overflow-hidden">
     <Sidebar
       sessions={query ? searchHits : sessions}
-      activeId={session.sessionId}
-      onselect={() => {}}
+      activeId={viewingId ?? session.sessionId}
+      onselect={onSelectSession}
       onsearch={onSearch}
       query={query} />
 
     <div class="flex-1 flex flex-col min-w-0">
       {#if !config.hasApiKey}
         <NoApiKey onaddkey={() => settingsOpen = true} />
+      {:else if viewingId !== null}
+        <TranscriptPane
+          {mode} a={langA} b={langB} {mine}
+          original={pastOriginal}
+          translation={pastTranslation}
+          liveOriginal=""
+          liveTranslation="" />
       {:else if !session.recording && transcript.original.length === 0 && transcript.translation.length === 0}
         <EmptyState {mode} />
       {:else}

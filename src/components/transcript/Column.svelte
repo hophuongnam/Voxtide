@@ -1,7 +1,16 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  interface Props { label: string; code: string; sub?: string; accent?: boolean; children: Snippet; }
-  const { label, code, sub = '', accent = false, children }: Props = $props();
+  interface Props {
+    label: string;
+    code: string;
+    sub?: string;
+    accent?: boolean;
+    children: Snippet;
+    bodyRef?: (el: HTMLElement | null) => void;
+  }
+  const { label, code, sub = '', accent = false, children, bodyRef }: Props = $props();
+  let body: HTMLElement | undefined = $state();
+  $effect(() => { bodyRef?.(body ?? null); return () => bodyRef?.(null); });
 </script>
 
 <div class="flex-1 flex flex-col min-w-0">
@@ -15,5 +24,5 @@
           style:font-family="'Geist Mono Variable', monospace">{code}</span>
     {#if sub}<span class="text-[11px]" style:color="var(--vt-subtle)">{sub}</span>{/if}
   </div>
-  <div class="flex-1 overflow-auto pt-1 pb-3">{@render children()}</div>
+  <div bind:this={body} class="flex-1 overflow-auto pt-1 pb-3">{@render children()}</div>
 </div>

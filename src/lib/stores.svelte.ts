@@ -1,5 +1,59 @@
 import type { AppConfig, TranscriptLine, TranslationStatus } from '../types';
-import type { DeviceEntry } from './ipc';
+import type { DeviceEntry, TokenRow } from './ipc';
+
+const LETTERS = ['A', 'B', 'C', 'D'];
+
+function asStatus(s: string): TranslationStatus {
+  return s === 'original' || s === 'translation' ? s : 'none';
+}
+
+/**
+ * Convert persisted DB tokens into the coalesced two-column shape the
+ * live store produces. Same coalesce rules: same-speaker consecutive
+ * tokens merge into one line; break on sentence-end punctuation or
+ * speaker change. Filters Soniox angle-bracket control markers that
+ * may have been persisted before the core-side filter landed.
+ */
+export function coalesceTokens(tokens: TokenRow[]): {
+  original: TranscriptLine[];
+  translation: TranscriptLine[];
+} {
+  const speakerChip = new Map<string, string>();
+  const chipFor = (speaker: string | null | undefined): string | null => {
+    if (!speaker) return null;
+    const existing = speakerChip.get(speaker);
+    if (existing) return existing;
+    const next = LETTERS[speakerChip.size % LETTERS.length]!;
+    speakerChip.set(speaker, next);
+    return next;
+  };
+
+  const out: { original: TranscriptLine[]; translation: TranscriptLine[] } = {
+    original: [],
+    translation: [],
+  };
+  for (const t of tokens) {
+    if (t.text.startsWith('<') && t.text.endsWith('>')) continue;
+    const status = asStatus(t.status);
+    const list = status === 'translation' ? out.translation : out.original;
+    const last = list[list.length - 1];
+    const sentenceEnd = last && /[.!?]\s*$/.test(last.text);
+    const chip = chipFor(t.speaker);
+    if (last && last.chip === chip && !sentenceEnd) {
+      list[list.length - 1] = { ...last, text: last.text + t.text };
+      continue;
+    }
+    list.push({
+      ts_ms: t.ts_ms,
+      status,
+      text: t.text,
+      language: t.language,
+      chip,
+      live: false,
+    });
+  }
+  return out;
+}
 
 export interface LiveInput {
   status: TranslationStatus;
@@ -35,6 +89,16 @@ export function createTranscriptStore(): TranscriptStore {
       else liveOriginal = input.text;
     },
     final(input) {
+      const list = input.status === 'translation' ? translation : original;
+      const last = list[list.length - 1];
+      const sentenceEnd = last && /[.!?]\s*$/.test(last.text);
+      if (last && last.chip === input.chip && !sentenceEnd) {
+        const merged: TranscriptLine = { ...last, text: last.text + input.text };
+        const next = list.slice(0, -1).concat(merged);
+        if (input.status === 'translation') { translation = next; liveTranslation = ''; }
+        else { original = next; liveOriginal = ''; }
+        return;
+      }
       const line: TranscriptLine = {
         ts_ms: input.ts_ms,
         status: input.status,

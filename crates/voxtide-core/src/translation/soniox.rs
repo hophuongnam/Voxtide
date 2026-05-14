@@ -8,7 +8,7 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, Message},
 };
 
-use crate::translation::tokens::{parse_message, ServerMessage};
+use crate::translation::tokens::{parse_message, ServerMessage, TranslationStatus};
 use crate::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang};
 use crate::{Error, Result};
 
@@ -215,7 +215,27 @@ impl TranslationProvider for SonioxBYOK {
                                     if let Message::Text(s) = m {
                                         match parse_message(&s) {
                                             Ok(ServerMessage::Tokens(frame)) => {
+                                                // Soniox sends non-final tokens as a complete trailing-partial
+                                                // replacement per frame. Emit finals individually (preserves
+                                                // per-token ts_ms + speaker grouping), but combine each frame's
+                                                // non-finals into one Live event per (translation vs not)
+                                                // bucket — frontend stores a single partial per status, and
+                                                // emitting one per token would leave only the last sub-word
+                                                // visible.
+                                                let mut orig_text = String::new();
+                                                let mut orig_meta: Option<(Option<String>, Option<String>)> = None;
+                                                let mut trans_text = String::new();
+                                                let mut trans_meta: Option<(Option<String>, Option<String>)> = None;
                                                 for t in frame.tokens {
+                                                    // Soniox emits control markers like `<end>` and `<fin>`
+                                                    // (endpoint detection, silence) as ordinary-looking tokens
+                                                    // wrapped in angle brackets. Skip them — they aren't user
+                                                    // transcript text. (Currently we don't use them as
+                                                    // utterance-break hints; sentence-end punctuation handles
+                                                    // line breaks in the store.)
+                                                    if t.text.starts_with('<') && t.text.ends_with('>') {
+                                                        continue;
+                                                    }
                                                     if t.is_final {
                                                         let _ = event_tx
                                                             .send(TranslationEvent::Final {
@@ -226,16 +246,33 @@ impl TranslationProvider for SonioxBYOK {
                                                                 ts_ms: SonioxBYOK::now_ms(),
                                                             })
                                                             .await;
+                                                    } else if matches!(t.translation_status, TranslationStatus::Translation) {
+                                                        trans_text.push_str(&t.text);
+                                                        trans_meta = Some((t.language, t.speaker));
                                                     } else {
-                                                        let _ = event_tx
-                                                            .send(TranslationEvent::Live {
-                                                                text: t.text,
-                                                                language: t.language,
-                                                                status: t.translation_status,
-                                                                speaker: t.speaker,
-                                                            })
-                                                            .await;
+                                                        orig_text.push_str(&t.text);
+                                                        orig_meta = Some((t.language, t.speaker));
                                                     }
+                                                }
+                                                if let Some((language, speaker)) = orig_meta {
+                                                    let _ = event_tx
+                                                        .send(TranslationEvent::Live {
+                                                            text: orig_text,
+                                                            language,
+                                                            status: TranslationStatus::Original,
+                                                            speaker,
+                                                        })
+                                                        .await;
+                                                }
+                                                if let Some((language, speaker)) = trans_meta {
+                                                    let _ = event_tx
+                                                        .send(TranslationEvent::Live {
+                                                            text: trans_text,
+                                                            language,
+                                                            status: TranslationStatus::Translation,
+                                                            speaker,
+                                                        })
+                                                        .await;
                                                 }
                                                 if frame.finished { finished = true; break 'inner; }
                                             }

@@ -1,4 +1,4 @@
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
   id            INTEGER PRIMARY KEY,
   started_at    INTEGER NOT NULL,
   ended_at      INTEGER,
@@ -9,7 +9,7 @@ CREATE TABLE sessions (
   duration_ms   INTEGER
 );
 
-CREATE TABLE tokens (
+CREATE TABLE IF NOT EXISTS tokens (
   id          INTEGER PRIMARY KEY,
   session_id  INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts_ms       INTEGER NOT NULL,
@@ -19,17 +19,17 @@ CREATE TABLE tokens (
   speaker     TEXT
 );
 
-CREATE INDEX idx_tokens_session ON tokens(session_id, ts_ms);
+CREATE INDEX IF NOT EXISTS idx_tokens_session ON tokens(session_id, ts_ms);
 
-CREATE VIRTUAL TABLE tokens_fts USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS tokens_fts USING fts5(
   text,
   content='tokens',
   content_rowid='id'
 );
 
-CREATE TRIGGER tokens_ai AFTER INSERT ON tokens BEGIN
+CREATE TRIGGER IF NOT EXISTS tokens_ai AFTER INSERT ON tokens BEGIN
   INSERT INTO tokens_fts(rowid, text) VALUES (new.id, new.text);
 END;
-CREATE TRIGGER tokens_ad AFTER DELETE ON tokens BEGIN
+CREATE TRIGGER IF NOT EXISTS tokens_ad AFTER DELETE ON tokens BEGIN
   INSERT INTO tokens_fts(tokens_fts, rowid, text) VALUES('delete', old.id, old.text);
 END;

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import type { AppConfig, ConnectionState, Mode, SessionRow, TranscriptLine, WhichLang } from '../types';
+import type { AppConfig, ConnectionState, Mode, SessionRow, WhichLang } from '../types';
 
 // --- keychain --------------------------------------------------------------
 export const hasApiKey = (account: string) =>
@@ -18,8 +18,17 @@ export const setConfig = (cfg: AppConfig) => invoke<void>('set_config', { cfg })
 // --- sessions / search ----------------------------------------------------
 export const listSessions = (limit = 50) =>
   invoke<SessionRow[]>('list_sessions', { limit });
+export interface TokenRow {
+  id: number;
+  session_id: number;
+  ts_ms: number;
+  text: string;
+  language: string | null;
+  status: string;
+  speaker: string | null;
+}
 export const getSession = (id: number) =>
-  invoke<{ session: SessionRow; tokens: TranscriptLine[] }>('get_session', { id });
+  invoke<{ session: SessionRow; tokens: TokenRow[] }>('get_session', { id });
 export interface SearchHit { id: number; session_id: number; ts_ms: number; text: string; }
 export const searchTranscripts = (query: string, limit = 50) =>
   invoke<SearchHit[]>('search_transcripts', { query, limit });
