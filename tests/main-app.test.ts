@@ -13,7 +13,7 @@ const sampleSessions = [
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(async (cmd: string, _args?: any) => {
     if (cmd === 'get_config') return {
-      language_a: 'en', language_b: 'vi', mine: 'b',
+      language_a: 'en', language_b: 'vi',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
       default_meeting_source: null, default_mic: null,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
@@ -78,7 +78,7 @@ describe('MainApp delete flow', () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_config') return {
-        language_a: 'en', language_b: 'vi', mine: 'b',
+        language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
@@ -104,7 +104,7 @@ describe('MainApp delete flow', () => {
     invokeMock.mockClear();
     (invokeMock as any).mockImplementation(async (cmd: string) => {
       if (cmd === 'get_config') return {
-        language_a: 'en', language_b: 'vi', mine: 'b',
+        language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
@@ -130,7 +130,7 @@ describe('MainApp reading config', () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_config') return {
-        language_a: 'zh', language_b: 'en', mine: 'a',
+        language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
         mode: 'conversation', font_size: 'm', show_pinyin: true,
@@ -159,7 +159,7 @@ describe('MainApp reading config', () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_config') return {
-        language_a: 'zh', language_b: 'en', mine: 'a',
+        language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
         mode: 'conversation', font_size: 'xl', show_pinyin: false,
@@ -197,7 +197,7 @@ describe('MainApp reading config', () => {
     invokeMock.mockClear();
     (invokeMock as any).mockImplementation(async (cmd: string) => {
       if (cmd === 'get_config') return {
-        language_a: 'zh', language_b: 'en', mine: 'a',
+        language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
         mode: 'conversation', font_size: 'xl', show_pinyin: true,
@@ -228,6 +228,38 @@ describe('MainApp reading config', () => {
       expect(root).not.toBeNull();
       expect(root.style.getPropertyValue('--vt-transcript-size')).toBe('19px');
       expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('MainApp language swap', () => {
+  it('swap button exchanges source/target languages and persists immediately', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+    const { container } = render(MainApp);
+    const swapBtn = await waitFor(() => {
+      const b = container.querySelector('button[aria-label="Swap languages"]') as HTMLElement;
+      expect(b).not.toBeNull();
+      return b;
+    });
+    await fireEvent.click(swapBtn);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+        cfg: expect.objectContaining({ language_a: 'vi', language_b: 'en' }),
+      }));
     });
   });
 });

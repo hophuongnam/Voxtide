@@ -1,7 +1,6 @@
 export const VERSION = '0.1.0';
 
 export type Mode = 'meeting' | 'conversation';
-export type WhichLang = 'a' | 'b';
 export type TranslationStatus = 'original' | 'translation' | 'none';
 export type Theme = 'light' | 'dark' | 'system';
 export type FontSize = 'xs' | 's' | 'm' | 'l' | 'xl';
@@ -9,7 +8,6 @@ export type FontSize = 'xs' | 's' | 'm' | 'l' | 'xl';
 export interface AppConfig {
   language_a: string;
   language_b: string;
-  mine: WhichLang;
   hotkey: string;
   theme: Theme;
   default_meeting_source: string | null;

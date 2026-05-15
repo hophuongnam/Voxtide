@@ -26,7 +26,7 @@
   import { LANG_NAMES } from '../lib/languages';
   import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
-  import type { AppConfig, FontSize, Mode, SessionRow, WhichLang } from '../types';
+  import type { AppConfig, FontSize, Mode, SessionRow } from '../types';
 
   let mode = $state<Mode>('meeting');
   let sessions = $state<SessionRow[]>([]);
@@ -144,7 +144,6 @@
                            name: LANG_NAMES[config.config?.language_a ?? 'en'] ?? '' });
   const langB = $derived({ code: (config.config?.language_b ?? 'vi').toUpperCase(),
                            name: LANG_NAMES[config.config?.language_b ?? 'vi'] ?? '' });
-  const mine: WhichLang = $derived(config.config?.mine ?? 'b');
   const fontSize: FontSize = $derived(config.config?.font_size ?? 'm');
   const showPinyin: boolean = $derived(config.config?.show_pinyin ?? false);
 
@@ -182,6 +181,8 @@
         transcript.live({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip }); break;
       case 'transcript-final':
         transcript.final({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip, ts_ms: ev.ts_ms }); break;
+      case 'utterance-break':
+        transcript.utteranceBreak(); break;
       case 'connection-state':
         session.setConnection(ev.state, ev.attempt, ev.retry_in_ms); break;
       case 'latency': session.setLatency(ev.median_ms); break;
@@ -246,7 +247,6 @@
         mode,
         language_a: config.config.language_a,
         language_b: config.config.language_b,
-        mine: config.config.mine,
         device_id: selectedSource.id,
         api_key_account: config.apiKeyAccount,
       });
@@ -283,7 +283,8 @@
   }
   async function onSwap()       {
     const c = config.config!;
-    const next = { ...c, mine: (c.mine === 'a' ? 'b' : 'a') as WhichLang };
+    // Swap source (a) and target (b) languages.
+    const next = { ...c, language_a: c.language_b, language_b: c.language_a };
     await setConfig(next);
     config.setConfig(next);
   }
@@ -294,7 +295,7 @@
     await setConfig(next);
     config.setConfig(next);
   }
-  async function onLangPick(which: WhichLang, code: string) {
+  async function onLangPick(which: 'a' | 'b', code: string) {
     const c = config.config!;
     if (which === 'a' && code === c.language_b) return;
     if (which === 'b' && code === c.language_a) return;
@@ -319,7 +320,7 @@
     onstart={onStart} onstop={onStop}
     onsettings={onSettings} onoverlay={onOverlayToggle}
     overlayShown={overlayShown}
-    a={langA} b={langB} {mine}
+    a={langA} b={langB}
     onswap={onSwap}
     onlangpick={onLangPick}
     source={selectedSource}
@@ -361,7 +362,7 @@
           </button>
         {/if}
         <TranscriptPane
-          {mode} a={langA} b={langB} {mine}
+          {mode} a={langA} b={langB}
           original={pastOriginal}
           translation={pastTranslation}
           liveOriginal=""
@@ -372,7 +373,7 @@
         <EmptyState {mode} />
       {:else}
         <TranscriptPane
-          {mode} a={langA} b={langB} {mine}
+          {mode} a={langA} b={langB}
           original={transcript.original}
           translation={transcript.translation}
           liveOriginal={transcript.liveOriginal}

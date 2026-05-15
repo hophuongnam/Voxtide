@@ -5,7 +5,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use voxtide_core::translation::soniox::SonioxBYOK;
 use voxtide_core::translation::{
-    Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang,
+    Mode, SessionConfig, TranslationEvent, TranslationProvider,
 };
 
 async fn spawn_replay_server(replay_path: &'static str) -> String {
@@ -49,7 +49,6 @@ async fn soniox_byok_streams_tokens_through_to_events() {
             mode: Mode::Conversation,
             language_a: "en".into(),
             language_b: "vi".into(),
-            mine: WhichLang::A,
         })
         .await
         .unwrap();
@@ -78,4 +77,40 @@ async fn soniox_byok_streams_tokens_through_to_events() {
     assert!(got_live);
     assert!(got_translation);
     assert_eq!(finals, 4);
+}
+
+#[tokio::test]
+async fn soniox_endpoint_marker_becomes_utterance_break() {
+    let url = spawn_replay_server(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/soniox_endpoint_replay.jsonl"
+    ))
+    .await;
+    let mut provider = SonioxBYOK::with_endpoint(&url);
+    provider
+        .open(SessionConfig {
+            api_key: "test".into(),
+            mode: Mode::Meeting,
+            language_a: "en".into(),
+            language_b: "vi".into(),
+        })
+        .await
+        .unwrap();
+
+    // Record the event order: the `<end>` token must surface as exactly one
+    // UtteranceBreak, positioned between the two final utterances.
+    let mut seq: Vec<&'static str> = Vec::new();
+    while let Some(ev) = provider.next_event().await {
+        match ev {
+            TranslationEvent::Final { .. } => seq.push("final"),
+            TranslationEvent::UtteranceBreak => seq.push("break"),
+            TranslationEvent::Stopped => break,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        seq,
+        vec!["final", "break", "final"],
+        "endpoint <end> token should emit one UtteranceBreak between the two finals"
+    );
 }

@@ -26,6 +26,7 @@ pub enum WireEvent {
         chip: Option<String>,
         ts_ms: i64,
     },
+    UtteranceBreak,
     ConnectionState {
         state: String,
         attempt: Option<u32>,
@@ -81,6 +82,7 @@ pub fn forward(app: &AppHandle, ev: CoreEvent) {
             attempt,
             retry_in_ms,
         },
+        CoreEvent::UtteranceBreak => WireEvent::UtteranceBreak,
         CoreEvent::Latency { median_ms } => WireEvent::Latency { median_ms },
     };
     let _ = app.emit("voxtide://event", &wire);

@@ -4,7 +4,7 @@ use tauri::State;
 use voxtide_core::audio::{mic::MicSource, AudioSource};
 use voxtide_core::session::StartArgs;
 use voxtide_core::translation::soniox::SonioxBYOK;
-use voxtide_core::translation::{Mode, SessionConfig, WhichLang};
+use voxtide_core::translation::{Mode, SessionConfig};
 
 use crate::state::AppState;
 
@@ -13,7 +13,6 @@ pub struct StartReq {
     pub mode: Mode,
     pub language_a: String,
     pub language_b: String,
-    pub mine: WhichLang,
     pub device_id: String,
     pub api_key_account: String,
 }
@@ -42,7 +41,6 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
         mode: req.mode,
         language_a: req.language_a,
         language_b: req.language_b,
-        mine: req.mine,
     };
     state
         .controller

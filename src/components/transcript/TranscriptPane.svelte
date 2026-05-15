@@ -1,13 +1,12 @@
 <script lang="ts">
   import Column from './Column.svelte';
   import Line from './Line.svelte';
-  import type { Mode, TranscriptLine, WhichLang, FontSize, AppConfig } from '../../types';
+  import type { Mode, TranscriptLine, FontSize, AppConfig } from '../../types';
 
   interface Props {
     mode: Mode;
     a: { code: string; name: string };
     b: { code: string; name: string };
-    mine: WhichLang;
     original: TranscriptLine[];
     translation: TranscriptLine[];
     liveOriginal: string;
@@ -18,7 +17,7 @@
     onconfigchange?: (next: AppConfig) => void;
   }
   const {
-    mode, a, b, mine, original, translation, liveOriginal, liveTranslation,
+    mode, a, b, original, translation, liveOriginal, liveTranslation,
     fontSize = 'm', showPinyin = false, cfg = null, onconfigchange = () => {},
   }: Props = $props();
 
@@ -31,7 +30,7 @@
     ? `${a.code} · multi-speaker`
     : `${a.code}/${b.code}`);
   const translationCode = $derived(mode === 'meeting'
-    ? (mine === 'a' ? a.code : b.code)
+    ? b.code
     : `${a.code} ⇄ ${b.code}`);
   const translationSub = $derived(mode === 'meeting' ? 'target' : 'two-way');
 

@@ -7,13 +7,13 @@ import LangPair from '../src/components/toolbar/LangPair.svelte';
 describe('ModeToggle', () => {
   it('marks the active mode with aria-pressed', () => {
     const { getByText } = render(ModeToggle, { props: { mode: 'meeting', oninput: () => {} } });
-    expect(getByText('Meeting').getAttribute('aria-pressed')).toBe('true');
-    expect(getByText('Conversation').getAttribute('aria-pressed')).toBe('false');
+    expect(getByText('System Audio').getAttribute('aria-pressed')).toBe('true');
+    expect(getByText('Microphone').getAttribute('aria-pressed')).toBe('false');
   });
   it('fires oninput when switching', async () => {
     const fn = vi.fn();
     const { getByText } = render(ModeToggle, { props: { mode: 'meeting', oninput: fn } });
-    await fireEvent.click(getByText('Conversation'));
+    await fireEvent.click(getByText('Microphone'));
     expect(fn).toHaveBeenCalledWith('conversation');
   });
 });
@@ -31,7 +31,6 @@ describe('LangPair picker', () => {
   const baseProps = {
     a: { code: 'EN', name: 'English' },
     b: { code: 'VI', name: 'Vietnamese' },
-    mine: 'b' as const,
   };
 
   it('clicking chip A opens a picker listbox with 8 options', async () => {

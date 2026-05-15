@@ -6,7 +6,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'set_api_key') return null;
     if (cmd === 'has_api_key') return true;
     if (cmd === 'get_config') return {
-      language_a: 'en', language_b: 'vi', mine: 'b',
+      language_a: 'en', language_b: 'vi',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
       default_meeting_source: null, default_mic: null,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
@@ -54,20 +54,21 @@ describe('SettingsSheet', () => {
     }));
   });
 
-  it('changing language A select persists via set_config', async () => {
+  it('changing Source language select persists via set_config', async () => {
     const { findByLabelText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
-    const sel = await findByLabelText('Language A code') as HTMLSelectElement;
+    const sel = await findByLabelText('Source language code') as HTMLSelectElement;
     await fireEvent.change(sel, { target: { value: 'ja' } });
     expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
       cfg: expect.objectContaining({ language_a: 'ja' }),
     }));
   });
 
-  it('clicking "Make mine" on Language A pill persists via set_config', async () => {
-    const { findByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
-    await fireEvent.click(await findByText('Make mine'));  // default cfg has mine='b', so A shows "Make mine"
+  it('changing Target language select persists via set_config', async () => {
+    const { findByLabelText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    const sel = await findByLabelText('Target language code') as HTMLSelectElement;
+    await fireEvent.change(sel, { target: { value: 'ja' } });
     expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
-      cfg: expect.objectContaining({ mine: 'a' }),
+      cfg: expect.objectContaining({ language_b: 'ja' }),
     }));
   });
 

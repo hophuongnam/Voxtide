@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { Mode } from '../../types';
+  import { MODE_LABELS } from '../../lib/modes';
   interface Props { mode: Mode; oninput: (m: Mode) => void; }
   const { mode, oninput }: Props = $props();
   const options: { id: Mode; label: string }[] = [
-    { id: 'meeting', label: 'Meeting' },
-    { id: 'conversation', label: 'Conversation' },
+    { id: 'meeting', label: MODE_LABELS.meeting },
+    { id: 'conversation', label: MODE_LABELS.conversation },
   ];
 </script>
 

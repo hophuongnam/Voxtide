@@ -1,7 +1,7 @@
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
 use voxtide_core::translation::{
-    Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang,
+    Mode, SessionConfig, TranslationEvent, TranslationProvider,
 };
 
 #[tokio::test]
@@ -29,7 +29,6 @@ async fn mock_replays_a_script_after_open() {
         mode: Mode::Conversation,
         language_a: "en".into(),
         language_b: "vi".into(),
-        mine: WhichLang::A,
     })
     .await
     .unwrap();

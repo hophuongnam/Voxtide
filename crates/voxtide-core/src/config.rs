@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::translation::{Mode, WhichLang};
+use crate::translation::Mode;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +28,6 @@ pub enum FontSize {
 pub struct AppConfig {
     pub language_a: String,
     pub language_b: String,
-    pub mine: WhichLang,
     pub hotkey: String,
     pub theme: Theme,
     pub default_meeting_source: Option<String>,
@@ -48,7 +47,6 @@ impl Default for AppConfig {
         Self {
             language_a: "en".into(),
             language_b: "vi".into(),
-            mine: WhichLang::B,
             hotkey: "Ctrl+Shift+V".into(),
             theme: Theme::System,
             default_meeting_source: None,

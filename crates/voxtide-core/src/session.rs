@@ -46,6 +46,8 @@ pub enum CoreEvent {
         chip: Option<char>,
         ts_ms: i64,
     },
+    /// Speech pause delimiting utterances; the UI starts a new row.
+    UtteranceBreak,
     ConnectionState {
         state: &'static str,
         attempt: Option<u32>,
@@ -310,6 +312,9 @@ impl SessionController {
                                     chip,
                                     ts_ms,
                                 });
+                            }
+                            TranslationEvent::UtteranceBreak => {
+                                let _ = tx.send(CoreEvent::UtteranceBreak);
                             }
                             TranslationEvent::Stopped => {
                                 let ended = now_ms();

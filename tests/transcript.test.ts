@@ -6,7 +6,7 @@ import NoApiKey from '../src/components/transcript/NoApiKey.svelte';
 import type { AppConfig } from '../src/types';
 
 const sampleCfg: AppConfig = {
-  language_a: 'zh', language_b: 'en', mine: 'a', hotkey: 'Ctrl+Shift+V',
+  language_a: 'zh', language_b: 'en', hotkey: 'Ctrl+Shift+V',
   theme: 'system', default_meeting_source: null, default_mic: null,
   mode: 'conversation', font_size: 'm', show_pinyin: false,
 };
@@ -18,7 +18,6 @@ describe('TranscriptPane', () => {
         mode: 'conversation',
         a: { code: 'EN', name: 'English' },
         b: { code: 'JA', name: 'Japanese' },
-        mine: 'a',
         original: [{ ts_ms: 100, status: 'original', text: 'Hello', language: 'en', chip: 'A', live: false }],
         translation: [{ ts_ms: 100, status: 'translation', text: 'こんにちは', language: 'ja', chip: 'A', live: false }],
         liveOriginal: '', liveTranslation: '',
@@ -30,12 +29,27 @@ describe('TranscriptPane', () => {
     expect(getByText('こんにちは')).toBeTruthy();
   });
 
+  it('meeting mode labels Original as source (a) and Translation as target (b)', () => {
+    // Regression: a meeting where Vietnamese is spoken and English is the
+    // translation target must show Original=VI, Translation=EN (never VI/VI).
+    const { getByText } = render(TranscriptPane, {
+      props: {
+        mode: 'meeting',
+        a: { code: 'VI', name: 'Vietnamese' },
+        b: { code: 'EN', name: 'English' },
+        original: [], translation: [], liveOriginal: '', liveTranslation: '',
+      },
+    });
+    expect(getByText('VI · multi-speaker')).toBeTruthy();
+    expect(getByText('EN')).toBeTruthy();
+  });
+
   it('sets the transcript font-size CSS variable from the fontSize prop', () => {
     const { container } = render(TranscriptPane, {
       props: {
         mode: 'conversation',
         a: { code: 'ZH', name: 'Chinese' }, b: { code: 'EN', name: 'English' },
-        mine: 'a', original: [], translation: [], liveOriginal: '', liveTranslation: '',
+        original: [], translation: [], liveOriginal: '', liveTranslation: '',
         fontSize: 'xl', showPinyin: false, cfg: null, onconfigchange: () => {},
       },
     });
@@ -48,7 +62,6 @@ describe('TranscriptPane', () => {
       props: {
         mode: 'conversation',
         a: { code: 'ZH', name: 'Chinese' }, b: { code: 'EN', name: 'English' },
-        mine: 'a',
         original: [{ ts_ms: 0, status: 'original', text: '你好', language: 'zh', chip: null, live: false }],
         translation: [], liveOriginal: '', liveTranslation: '',
         fontSize: 'm', showPinyin: true, cfg: null, onconfigchange: () => {},
@@ -63,7 +76,7 @@ describe('TranscriptPane', () => {
       props: {
         mode: 'conversation',
         a: { code: 'ZH', name: 'Chinese' }, b: { code: 'EN', name: 'English' },
-        mine: 'a', original: [], translation: [], liveOriginal: '', liveTranslation: '',
+        original: [], translation: [], liveOriginal: '', liveTranslation: '',
         fontSize: 'm', showPinyin: false, cfg: sampleCfg, onconfigchange,
       },
     });
@@ -80,7 +93,7 @@ describe('TranscriptPane', () => {
 describe('EmptyState', () => {
   it('shows mode-specific copy', () => {
     const { getByText } = render(EmptyState, { props: { mode: 'meeting' } });
-    expect(getByText(/Ready to translate a meeting/)).toBeTruthy();
+    expect(getByText(/Ready to translate system audio/)).toBeTruthy();
   });
 });
 

@@ -27,7 +27,7 @@ describe('ipc command wrappers', () => {
     invokeMock.mockResolvedValueOnce(42);
     const id = await ipc.startSession({
       mode: 'meeting',
-      language_a: 'en', language_b: 'vi', mine: 'b',
+      language_a: 'en', language_b: 'vi',
       device_id: 'system', api_key_account: 'alice',
     });
     expect(id).toBe(42);

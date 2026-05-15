@@ -48,6 +48,50 @@ describe('transcript store', () => {
     expect(t.original[1]!.chip).toBe('B');
   });
 
+  it('utteranceBreak() forces the next same-speaker final into a new row (both columns)', () => {
+    const t = createTranscriptStore();
+    t.final({ status: 'original',    text: 'went to the store', chip: 'A', language: 'en', ts_ms: 1 });
+    t.final({ status: 'translation', text: 'đi ra cửa hàng',     chip: 'A', language: 'vi', ts_ms: 1 });
+    // Speech pause detected between utterances.
+    t.utteranceBreak();
+    t.final({ status: 'original',    text: 'then drove home',   chip: 'A', language: 'en', ts_ms: 2 });
+    t.final({ status: 'translation', text: 'rồi lái xe về',      chip: 'A', language: 'vi', ts_ms: 2 });
+
+    expect(t.original).toHaveLength(2);
+    expect(t.translation).toHaveLength(2);
+    expect(t.original[0]!.text).toBe('went to the store');
+    expect(t.original[1]!.text).toBe('then drove home');
+    expect(t.translation[1]!.text).toBe('rồi lái xe về');
+  });
+
+  it('utteranceBreak() before any final is a no-op (no empty rows)', () => {
+    const t = createTranscriptStore();
+    t.utteranceBreak();
+    t.final({ status: 'original', text: 'hi', chip: 'A', language: 'en', ts_ms: 1 });
+    expect(t.original).toHaveLength(1);
+    expect(t.original[0]!.text).toBe('hi');
+  });
+
+  it('without utteranceBreak, same-speaker finals still coalesce (break is opt-in)', () => {
+    const t = createTranscriptStore();
+    t.final({ status: 'original', text: 'a ', chip: 'A', language: 'en', ts_ms: 1 });
+    t.final({ status: 'original', text: 'b',  chip: 'A', language: 'en', ts_ms: 2 });
+    expect(t.original).toHaveLength(1);
+    expect(t.original[0]!.text).toBe('a b');
+  });
+
+  it('reset() clears a pending utterance break', () => {
+    const t = createTranscriptStore();
+    t.final({ status: 'original', text: 'one', chip: 'A', language: 'en', ts_ms: 1 });
+    t.utteranceBreak();
+    t.reset();
+    t.final({ status: 'original', text: 'two', chip: 'A', language: 'en', ts_ms: 2 });
+    t.final({ status: 'original', text: ' three', chip: 'A', language: 'en', ts_ms: 3 });
+    // Break was discarded by reset; these coalesce normally.
+    expect(t.original).toHaveLength(1);
+    expect(t.original[0]!.text).toBe('two three');
+  });
+
   it('original and translation produce matching row counts for the same speaker sequence', () => {
     const t = createTranscriptStore();
     // Speaker B utters multi-sentence content in both languages

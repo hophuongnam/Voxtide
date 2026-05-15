@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../icons/Icon.svelte';
-  import type { SessionRow } from '../../types';
+  import type { Mode, SessionRow } from '../../types';
+  import { MODE_LABELS } from '../../lib/modes';
   import { formatDuration, formatTime } from '../../lib/format';
 
   interface Props {
@@ -12,6 +13,7 @@
   }
   const { row, active, onclick, ondelete, preview = '' }: Props = $props();
   const time = $derived(formatTime(row.started_at));
+  const modeLabel = $derived(MODE_LABELS[row.mode as Mode] ?? row.mode);
   const dur = $derived(row.duration_ms ? formatDuration(row.duration_ms) : '—');
   const canDelete = $derived(row.ended_at != null);
 
@@ -47,7 +49,7 @@
             style:border="0.5px solid var(--vt-border)"
             style:font-family="'Geist Mono Variable', monospace">{row.lang_b.toUpperCase()}</span>
       <span class="ml-auto text-[9.5px] uppercase tracking-wide"
-            style:color="var(--vt-subtle)">{row.mode}</span>
+            style:color="var(--vt-subtle)">{modeLabel}</span>
       {#if row.ended_at == null}
         <span class="block w-1.5 h-1.5 rounded-full"
               style:background="var(--vt-rec)"

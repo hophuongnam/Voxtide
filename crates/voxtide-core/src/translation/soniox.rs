@@ -9,7 +9,7 @@ use tokio_tungstenite::{
 };
 
 use crate::translation::tokens::{parse_message, ServerMessage, TranslationStatus};
-use crate::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider, WhichLang};
+use crate::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider};
 use crate::{Error, Result};
 
 pub const SONIOX_WS: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -26,17 +26,14 @@ pub fn build_initial_config(cfg: &SessionConfig) -> Value {
         "enable_speaker_diarization": true,
     });
 
-    let (mine_lang, other_lang) = match cfg.mine {
-        WhichLang::A => (cfg.language_a.clone(), cfg.language_b.clone()),
-        WhichLang::B => (cfg.language_b.clone(), cfg.language_a.clone()),
-    };
-
     match cfg.mode {
         Mode::Meeting => {
-            base["language_hints"] = json!([other_lang]);
+            // language_a is the spoken (source) language; language_b is the
+            // translation target. One-way a → b.
+            base["language_hints"] = json!([cfg.language_a]);
             base["translation"] = json!({
                 "type": "one_way",
-                "target_language": mine_lang,
+                "target_language": cfg.language_b,
             });
         }
         Mode::Conversation => {
@@ -229,11 +226,18 @@ impl TranslationProvider for SonioxBYOK {
                                                 for t in frame.tokens {
                                                     // Soniox emits control markers like `<end>` and `<fin>`
                                                     // (endpoint detection, silence) as ordinary-looking tokens
-                                                    // wrapped in angle brackets. Skip them — they aren't user
-                                                    // transcript text. (Currently we don't use them as
-                                                    // utterance-break hints; sentence-end punctuation handles
-                                                    // line breaks in the store.)
+                                                    // wrapped in angle brackets. They are never user transcript
+                                                    // text. `<end>` is the endpoint/pause signal (we enabled
+                                                    // `enable_endpoint_detection`) — surface it as an utterance
+                                                    // break so the store can chunk a long monologue. Other
+                                                    // markers (`<fin>`, …) are skipped silently to avoid
+                                                    // over-segmenting on every finalization.
                                                     if t.text.starts_with('<') && t.text.ends_with('>') {
+                                                        if t.text == "<end>" {
+                                                            let _ = event_tx
+                                                                .send(TranslationEvent::UtteranceBreak)
+                                                                .await;
+                                                        }
                                                         continue;
                                                     }
                                                     if t.is_final {

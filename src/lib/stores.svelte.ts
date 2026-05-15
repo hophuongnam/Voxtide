@@ -69,6 +69,10 @@ export interface TranscriptStore {
   readonly liveTranslation: string;
   live(input: LiveInput): void;
   final(input: FinalInput): void;
+  /** Speech pause detected — the next final in each column starts a new row
+   *  even if the speaker is unchanged, so a long monologue is chunked by
+   *  utterance instead of growing into one unreadable block. */
+  utteranceBreak(): void;
   reset(): void;
 }
 
@@ -77,6 +81,9 @@ export function createTranscriptStore(): TranscriptStore {
   let translation = $state<TranscriptLine[]>([]);
   let liveOriginal = $state('');
   let liveTranslation = $state('');
+  // Set by utteranceBreak(); consumed by the next final() in each column.
+  let breakOriginal = false;
+  let breakTranslation = false;
 
   return {
     get original() { return original; },
@@ -88,13 +95,19 @@ export function createTranscriptStore(): TranscriptStore {
       else liveOriginal = input.text;
     },
     final(input) {
-      const list = input.status === 'translation' ? translation : original;
+      const isTrans = input.status === 'translation';
+      const list = isTrans ? translation : original;
       const last = list[list.length - 1];
-      // Break only on speaker change. We intentionally do NOT break on sentence-end
-      // punctuation: ASCII `.!?` vs CJK `。！？` would tokenize asymmetrically across
-      // languages, so the original/translation columns would have different row
-      // counts. One speaker turn = one row in both columns guarantees alignment.
-      if (last && last.chip === input.chip) {
+      // A pending pause break is consumed by this final regardless of outcome.
+      const pendingBreak = isTrans ? breakTranslation : breakOriginal;
+      if (isTrans) breakTranslation = false; else breakOriginal = false;
+      // Merge into the previous row only for the same speaker AND when no pause
+      // break is pending. We intentionally do NOT break on sentence-end
+      // punctuation: ASCII `.!?` vs CJK `。！？` would tokenize asymmetrically
+      // across languages, so the columns would desync. Speaker change and an
+      // explicit utteranceBreak() are the only row boundaries — both apply
+      // symmetrically to both columns, preserving alignment.
+      if (last && last.chip === input.chip && !pendingBreak) {
         const merged: TranscriptLine = { ...last, text: last.text + input.text };
         const next = list.slice(0, -1).concat(merged);
         if (input.status === 'translation') { translation = next; liveTranslation = ''; }
@@ -117,11 +130,17 @@ export function createTranscriptStore(): TranscriptStore {
         liveOriginal = '';
       }
     },
+    utteranceBreak() {
+      breakOriginal = true;
+      breakTranslation = true;
+    },
     reset() {
       original = [];
       translation = [];
       liveOriginal = '';
       liveTranslation = '';
+      breakOriginal = false;
+      breakTranslation = false;
     },
   };
 }

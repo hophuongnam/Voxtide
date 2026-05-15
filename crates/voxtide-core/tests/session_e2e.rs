@@ -8,7 +8,7 @@ use voxtide_core::persistence::Store;
 use voxtide_core::session::{CoreEvent, SessionController, StartArgs};
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, WhichLang};
+use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -59,7 +59,6 @@ async fn session_persists_finals_and_emits_events() {
                 mode: Mode::Meeting,
                 language_a: "en".into(),
                 language_b: "vi".into(),
-                mine: WhichLang::B,
             },
             source: wav,
             provider,
@@ -129,7 +128,6 @@ async fn active_session_id_tracks_running_state() {
                 mode: Mode::Meeting,
                 language_a: "en".into(),
                 language_b: "vi".into(),
-                mine: WhichLang::B,
             },
             source: wav,
             provider,

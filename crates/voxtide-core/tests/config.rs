@@ -1,12 +1,11 @@
 use voxtide_core::config::{AppConfig, ConfigStore, FontSize, Theme};
-use voxtide_core::translation::{Mode, WhichLang};
+use voxtide_core::translation::Mode;
 
 #[test]
 fn default_config_has_expected_shape() {
     let cfg = AppConfig::default();
     assert_eq!(cfg.language_a, "en");
     assert_eq!(cfg.language_b, "vi");
-    assert!(matches!(cfg.mine, WhichLang::B));
     assert_eq!(cfg.hotkey, "Ctrl+Shift+V");
     assert!(matches!(cfg.theme, Theme::System));
     assert!(cfg.default_meeting_source.is_none());

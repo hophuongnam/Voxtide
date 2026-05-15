@@ -16,20 +16,15 @@ pub enum Mode {
     Conversation,
 }
 
+/// `language_a` is the source (spoken) language; `language_b` is the
+/// translation target. Meeting mode translates a → b one-way;
+/// Conversation mode translates both directions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub api_key: String,
     pub mode: Mode,
     pub language_a: String,
     pub language_b: String,
-    pub mine: WhichLang,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WhichLang {
-    A,
-    B,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +42,10 @@ pub enum TranslationEvent {
         status: tokens::TranslationStatus,
         speaker: Option<String>,
     },
+    /// Soniox endpoint detection fired — a speech pause delimiting one
+    /// utterance from the next. Carries no text; the store uses it to start
+    /// a new transcript row in both columns.
+    UtteranceBreak,
     Connected,
     Reconnecting {
         attempt: u32,

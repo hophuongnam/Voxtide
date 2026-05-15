@@ -4,7 +4,7 @@ import ReadingControls from '../src/components/transcript/ReadingControls.svelte
 import type { AppConfig } from '../src/types';
 
 const cfg: AppConfig = {
-  language_a: 'en', language_b: 'vi', mine: 'b', hotkey: 'Ctrl+Shift+V',
+  language_a: 'en', language_b: 'vi', hotkey: 'Ctrl+Shift+V',
   theme: 'system', default_meeting_source: null, default_mic: null,
   mode: 'meeting', font_size: 'm', show_pinyin: false,
 };

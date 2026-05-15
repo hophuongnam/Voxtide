@@ -4,9 +4,9 @@
   interface Props { mode: Mode; }
   const { mode }: Props = $props();
   const iconName = $derived(mode === 'meeting' ? 'speaker' : 'mic');
-  const title = $derived(mode === 'meeting' ? 'Ready to translate a meeting' : 'Ready for a conversation');
+  const title = $derived(mode === 'meeting' ? 'Ready to translate system audio' : 'Ready to translate your microphone');
   const body = $derived(mode === 'meeting'
-    ? 'Voxtide will capture system audio from the selected source and translate the remote speaker into your language.'
+    ? 'Voxtide will capture system audio from the selected source and translate it from the source language into the target language.'
     : 'Voxtide will capture your microphone and translate two-way between the chosen language pair.');
 </script>
 

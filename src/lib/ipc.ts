@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import type { AppConfig, ConnectionState, Mode, SessionRow, WhichLang } from '../types';
+import type { AppConfig, ConnectionState, Mode, SessionRow } from '../types';
 
 // --- keychain --------------------------------------------------------------
 export const hasApiKey = (account: string) =>
@@ -43,9 +43,8 @@ export const listLoopbackSources = () => invoke<DeviceEntry[]>('list_loopback_so
 // --- lifecycle ------------------------------------------------------------
 export interface StartReq {
   mode: Mode;
-  language_a: string;
-  language_b: string;
-  mine: WhichLang;
+  language_a: string;          // source (spoken) language
+  language_b: string;          // target (translation) language
   device_id: string;          // mic id for Conversation, loopback id (or "system") for Meeting
   api_key_account: string;
 }
@@ -66,6 +65,7 @@ export type CoreEvent =
       text: string; language: string | null; chip: string | null }
   | { kind: 'transcript-final'; status: 'original' | 'translation' | 'none';
       text: string; language: string | null; chip: string | null; ts_ms: number }
+  | { kind: 'utterance-break' }
   | { kind: 'connection-state'; state: ConnectionState['state']; attempt: number | null; retry_in_ms: number | null }
   | { kind: 'latency'; median_ms: number };
 

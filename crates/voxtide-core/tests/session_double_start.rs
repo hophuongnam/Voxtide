@@ -6,7 +6,7 @@ use voxtide_core::persistence::Store;
 use voxtide_core::session::{SessionController, StartArgs};
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, WhichLang};
+use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -20,7 +20,6 @@ fn make_cfg() -> SessionConfig {
         mode: Mode::Conversation,
         language_a: "en".into(),
         language_b: "vi".into(),
-        mine: WhichLang::A,
     }
 }
 
