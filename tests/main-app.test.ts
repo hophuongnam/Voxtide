@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 
 const sampleSessions = [
@@ -121,6 +121,11 @@ describe('MainApp delete flow', () => {
 });
 
 describe('MainApp reading config', () => {
+  afterEach(async () => {
+    const { transcript } = await import('../src/lib/stores.svelte');
+    transcript.reset();
+  });
+
   it('passes show_pinyin through to a live zh transcript line', async () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation(async (cmd: string) => {
@@ -147,6 +152,34 @@ describe('MainApp reading config', () => {
 
     await waitFor(() => {
       expect(container.querySelectorAll('ruby').length).toBe(2);
+    });
+  });
+
+  it('passes font_size through to the transcript-root CSS variable', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'zh', language_b: 'en', mine: 'a',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'conversation', font_size: 'xl', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+    const { transcript } = await import('../src/lib/stores.svelte');
+    transcript.reset();
+    transcript.final({ status: 'original', text: 'hi', chip: null, language: 'en', ts_ms: 1 });
+
+    const { container } = render(MainApp);
+
+    await waitFor(() => {
+      const root = container.querySelector('[data-testid="transcript-root"]') as HTMLElement;
+      expect(root).not.toBeNull();
+      expect(root.style.getPropertyValue('--vt-transcript-size')).toBe('19px');
     });
   });
 });
