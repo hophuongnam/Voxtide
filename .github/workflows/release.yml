@@ -66,8 +66,54 @@ jobs:
         with:
           # Same dual-source as checkout: tag-name from input (dispatch) or github.ref_name (push).
           tag_name: ${{ inputs.tag || github.ref_name }}
+          # Tauri 2 NSIS output is named `<productName>_<version>_<arch>-setup.exe`,
+          # plus a parallel `.sig` file when createUpdaterArtifacts is on. The MSI
+          # ships as the manual installer; the .exe + .sig is what the updater consumes.
           files: |
-            target/${{ matrix.target }}/release/bundle/**/*.msi
-            target/${{ matrix.target }}/release/bundle/**/*.nsis.exe
+            target/${{ matrix.target }}/release/bundle/msi/*.msi
+            target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Adds windows-x86_64 + windows-aarch64 platform blocks to latest.json so the
+  # in-app updater works on Windows installs (release.sh wrote a darwin-only
+  # manifest from the mac box; CI fills in the rest after the Windows builds).
+  finalize-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: t
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download manifest + Windows signatures from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.t.outputs.tag }}
+        run: gh release download "$TAG" -R ${{ github.repository }} -p latest.json -p '*-setup.exe.sig' --clobber
+
+      - name: Merge Windows platforms into latest.json
+        env:
+          TAG: ${{ steps.t.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          url_base="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          x64_sig="$(cat "Voxtide_${ver}_x64-setup.exe.sig")"
+          arm64_sig="$(cat "Voxtide_${ver}_arm64-setup.exe.sig")"
+          jq --arg x64sig "$x64_sig" \
+             --arg arm64sig "$arm64_sig" \
+             --arg x64url "${url_base}/Voxtide_${ver}_x64-setup.exe" \
+             --arg arm64url "${url_base}/Voxtide_${ver}_arm64-setup.exe" \
+             '.platforms["windows-x86_64"] = {signature: $x64sig, url: $x64url} |
+              .platforms["windows-aarch64"] = {signature: $arm64sig, url: $arm64url}' \
+             latest.json > latest.json.new
+          mv latest.json.new latest.json
+          jq . latest.json
+
+      - name: Re-upload latest.json (clobber)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.t.outputs.tag }}
+        run: gh release upload "$TAG" latest.json --clobber -R ${{ github.repository }}
