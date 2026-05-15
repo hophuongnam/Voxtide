@@ -7,15 +7,20 @@
   interface Props {
     row: SessionRow;
     active: boolean;
+    /** True only when this row is the session recording *right now*. Drives
+     *  the rec dot and the delete gate. NOT derived from `ended_at`: an
+     *  orphaned row (killed/quit mid-record) also has ended_at == null but is
+     *  not live, and must stay deletable. */
+    live?: boolean;
     onclick: () => void;
     ondelete?: (row: SessionRow) => void;
     preview?: string;
   }
-  const { row, active, onclick, ondelete, preview = '' }: Props = $props();
+  const { row, active, live = false, onclick, ondelete, preview = '' }: Props = $props();
   const time = $derived(formatTime(row.started_at));
   const modeLabel = $derived(MODE_LABELS[row.mode as Mode] ?? row.mode);
   const dur = $derived(row.duration_ms ? formatDuration(row.duration_ms) : '—');
-  const canDelete = $derived(row.ended_at != null);
+  const canDelete = $derived(!live);
 
   function handleDelete(e: MouseEvent) {
     e.stopPropagation();
@@ -50,8 +55,8 @@
             style:font-family="'Geist Mono Variable', monospace">{row.lang_b.toUpperCase()}</span>
       <span class="ml-auto text-[9.5px] uppercase tracking-wide"
             style:color="var(--vt-subtle)">{modeLabel}</span>
-      {#if row.ended_at == null}
-        <span class="block w-1.5 h-1.5 rounded-full"
+      {#if live}
+        <span data-testid="rec-dot" class="block w-1.5 h-1.5 rounded-full"
               style:background="var(--vt-rec)"
               style:box-shadow="0 0 0 2px var(--vt-rec-glow)"></span>
       {/if}

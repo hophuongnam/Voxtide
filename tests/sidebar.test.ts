@@ -26,16 +26,39 @@ describe('Sidebar', () => {
     expect(container.querySelector('[data-active="true"]')).toBeTruthy();
   });
 
-  it('hides the trash button on the live session row', () => {
-    const live = [{ ...sessions[0]!, ended_at: null, duration_ms: 0 }];
+  it('shows the rec dot and hides trash ONLY for the live session (by liveId, not ended_at)', () => {
+    // The genuinely-recording session: ended_at is transiently null AND its id
+    // equals liveId. It must show the dot and be undeletable.
+    const live = [{ ...sessions[0]!, ended_at: null, duration_ms: null }];
     const { container } = render(Sidebar, {
       props: {
-        sessions: live, activeId: live[0]!.id,
+        sessions: live, activeId: live[0]!.id, liveId: live[0]!.id,
         onselect: () => {}, onsearch: () => {}, query: '',
         ondeleterequest: () => {},
       },
     });
+    expect(container.querySelector('[data-testid="rec-dot"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="delete-session"]')).toBeNull();
+  });
+
+  it('an orphan (ended_at null, NOT live) is deletable and shows no rec dot', async () => {
+    // Exactly the screenshot bug: a session stuck ended_at=null after a
+    // kill/quit. Nothing is recording (liveId null), so it must be a normal
+    // deletable row with no "recording" indicator.
+    const orphan = [{ ...sessions[0]!, ended_at: null, duration_ms: null }];
+    const ondeleterequest = vi.fn();
+    const { container } = render(Sidebar, {
+      props: {
+        sessions: orphan, activeId: orphan[0]!.id, liveId: null,
+        onselect: () => {}, onsearch: () => {}, query: '',
+        ondeleterequest,
+      },
+    });
+    expect(container.querySelector('[data-testid="rec-dot"]')).toBeNull();
+    const btn = container.querySelector('[data-testid="delete-session"]') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(ondeleterequest).toHaveBeenCalledWith(orphan[0]);
   });
 
   it('shows the trash button on past rows and routes clicks to ondeleterequest', async () => {
@@ -43,7 +66,7 @@ describe('Sidebar', () => {
     const ondeleterequest = vi.fn();
     const { container } = render(Sidebar, {
       props: {
-        sessions: past, activeId: past[0]!.id,
+        sessions: past, activeId: past[0]!.id, liveId: null,
         onselect: () => {}, onsearch: () => {}, query: '',
         ondeleterequest,
       },

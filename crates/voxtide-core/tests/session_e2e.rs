@@ -99,6 +99,69 @@ async fn session_persists_finals_and_emits_events() {
 }
 
 #[tokio::test]
+async fn provider_stream_ending_without_stopped_still_finalizes_session() {
+    // Soniox can drop the websocket (server close / network blip / auth expiry)
+    // so the stream ends with no terminal `Stopped` event. The session must
+    // still be finalized — otherwise the row is stuck `ended_at IS NULL`
+    // forever (red "recording" dot, no delete button).
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+    // NOTE: deliberately NO TranslationEvent::Stopped at the end.
+    let provider = Box::new(MockProvider::with_script(vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Final {
+            text: "Hello".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 100,
+        },
+    ]));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+            },
+            source: wav,
+            provider,
+            device_label: None,
+        })
+        .await
+        .unwrap();
+
+    let mut got_stopped = false;
+    while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        if matches!(ev, CoreEvent::SessionStopped { .. }) {
+            got_stopped = true;
+            break;
+        }
+    }
+    assert!(
+        got_stopped,
+        "SessionStopped must fire even with no terminal Stopped event"
+    );
+
+    let row = Sessions::get(ctl.store().pool(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        row.ended_at.is_some(),
+        "session must be finalized (ended_at set) on any worker-loop exit"
+    );
+    assert!(row.duration_ms.is_some());
+}
+
+#[tokio::test]
 async fn active_session_id_tracks_running_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("v.db")).await.unwrap();

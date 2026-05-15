@@ -218,14 +218,8 @@ impl SessionController {
                     // never want a stale audio frame or a delayed provider event to delay this.
                     biased;
                     _ = &mut stop_worker_rx => {
-                        let ended = now_ms();
-                        if let Err(e) = Sessions::finish(store.pool(), session_id, ended).await {
-                            tracing::warn!(?e, "sessions finish (on stop)");
-                        }
-                        let _ = tx.send(CoreEvent::SessionStopped {
-                            session_id,
-                            duration_ms: ended - started,
-                        });
+                        // Finalization is centralized after the loop so every
+                        // exit path persists the session exactly once.
                         break;
                     }
                     // Forward audio chunks to the provider. Disabled once the source is drained.
@@ -316,17 +310,7 @@ impl SessionController {
                             TranslationEvent::UtteranceBreak => {
                                 let _ = tx.send(CoreEvent::UtteranceBreak);
                             }
-                            TranslationEvent::Stopped => {
-                                let ended = now_ms();
-                                if let Err(e) = Sessions::finish(store.pool(), session_id, ended).await {
-                                    tracing::warn!(?e, "sessions finish");
-                                }
-                                let _ = tx.send(CoreEvent::SessionStopped {
-                                    session_id,
-                                    duration_ms: ended - started,
-                                });
-                                break;
-                            }
+                            TranslationEvent::Stopped => break,
                         }
                     }
                 }
@@ -335,6 +319,22 @@ impl SessionController {
             // Best-effort cleanup. If the provider already closed itself (Stopped path) this is a
             // no-op; if the loop broke for another reason we want the socket released promptly.
             let _ = provider.close().await;
+
+            // Finalize on EVERY loop-exit path: explicit stop(), provider
+            // `Stopped`, or the provider stream closing with no terminal event
+            // (websocket drop / auth expiry). Persisting here rather than in
+            // the individual select arms guarantees a session can never be
+            // left stuck `ended_at IS NULL` while the process keeps running.
+            // `Sessions::finish` is an idempotent UPDATE, so a redundant call
+            // is harmless.
+            let ended = now_ms();
+            if let Err(e) = Sessions::finish(store.pool(), session_id, ended).await {
+                tracing::warn!(?e, "sessions finish (post-loop)");
+            }
+            let _ = tx.send(CoreEvent::SessionStopped {
+                session_id,
+                duration_ms: ended - started,
+            });
 
             // Reset the slot to Idle so callers (e.g. active_session_id) see the correct state
             // after a natural stop. Explicit stop() already resets to Idle before joining, so we

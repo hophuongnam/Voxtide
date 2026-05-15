@@ -53,6 +53,23 @@ impl Sessions {
         Ok(())
     }
 
+    /// Finalize every row left with `ended_at IS NULL`. Such rows are orphans
+    /// from a kill / crash / quit-while-recording where the normal finish path
+    /// never ran. Called once at store open, before any session can start, so
+    /// any NULL-ended row is by definition stale. An aborted session has no
+    /// well-defined end, so we set `ended_at = started_at` and `duration_ms = 0`
+    /// ("unknown"). This makes the row deletable and stops it rendering a stale
+    /// "recording" indicator. Returns the number of rows reconciled.
+    pub async fn reconcile_stale(pool: &SqlitePool) -> Result<u64> {
+        let result = sqlx::query(
+            "UPDATE sessions SET ended_at = started_at, duration_ms = 0 \
+             WHERE ended_at IS NULL",
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn list(pool: &SqlitePool, limit: i64) -> Result<Vec<SessionRow>> {
         let rows = sqlx::query_as::<_, SessionRow>(
             "SELECT id, started_at, ended_at, mode, lang_a, lang_b, device_label, duration_ms \

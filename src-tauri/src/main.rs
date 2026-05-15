@@ -87,22 +87,34 @@ async fn main() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
-        #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Reopen {
-            has_visible_windows,
-            ..
-        } = event
-        {
-            if !has_visible_windows {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+        match event {
+            // Cmd+Q / "Quit Voxtide" / dock-quit fire ExitRequested. Stop the
+            // active session first so its row is finalized (ended_at written);
+            // otherwise quitting mid-recording orphans it as a permanent
+            // "recording" ghost with no delete affordance. stop() waits on the
+            // worker join (<=5s); the store's open-time reconcile is the
+            // backstop for a hard kill that never reaches this handler.
+            tauri::RunEvent::ExitRequested { .. } => {
+                if let Some(state) = app_handle.try_state::<state::AppState>() {
+                    let controller = state.controller.clone();
+                    tauri::async_runtime::block_on(async move {
+                        let _ = controller.stop().await;
+                    });
                 }
             }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (app_handle, event);
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } => {
+                if !has_visible_windows {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+            _ => {}
         }
     });
 }

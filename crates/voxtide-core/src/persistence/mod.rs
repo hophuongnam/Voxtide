@@ -28,6 +28,10 @@ impl Store {
             .await?;
         let store = Self { pool };
         store.migrate().await?;
+        // Repair orphan sessions left `ended_at IS NULL` by a prior
+        // kill/crash/quit-while-recording. Runs before the controller exists,
+        // so every NULL-ended row here is definitively stale.
+        sessions::Sessions::reconcile_stale(&store.pool).await?;
         Ok(store)
     }
 

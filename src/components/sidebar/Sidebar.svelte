@@ -8,13 +8,16 @@
   interface Props {
     sessions: SessionRow[];
     activeId: number | null;
+    /** Session recording right now (drives the rec dot + delete gate), or
+     *  null when idle. Distinct from `activeId`, which is the *viewed* row. */
+    liveId?: number | null;
     onselect: (id: number) => void;
     onsearch: (q: string) => void;
     query: string;
     previews?: Record<number, string>;
     ondeleterequest?: (row: SessionRow) => void;
   }
-  const { sessions, activeId, onselect, onsearch, query, previews = {}, ondeleterequest }: Props = $props();
+  const { sessions, activeId, liveId = null, onselect, onsearch, query, previews = {}, ondeleterequest }: Props = $props();
   const groups = $derived(groupByDate(sessions, s => s.started_at));
 </script>
 
@@ -39,6 +42,7 @@
           <SessionItem
             {row}
             active={row.id === activeId}
+            live={liveId != null && row.id === liveId}
             preview={previews[row.id] ?? ''}
             onclick={() => onselect(row.id)}
             {...(ondeleterequest ? { ondelete: ondeleterequest } : {})} />

@@ -340,6 +340,7 @@
     <Sidebar
       sessions={query ? searchHits : sessions}
       activeId={viewingId ?? session.sessionId}
+      liveId={session.recording ? session.sessionId : null}
       onselect={onSelectSession}
       onsearch={onSearch}
       query={query}
