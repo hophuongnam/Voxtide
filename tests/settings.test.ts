@@ -70,4 +70,21 @@ describe('SettingsSheet', () => {
       cfg: expect.objectContaining({ mine: 'a' }),
     }));
   });
+
+  it('Reading section toggles pinyin and persists via set_config', async () => {
+    const { findByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    await fireEvent.click(await findByText(/Show pinyin/));
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ show_pinyin: true }),
+    }));
+  });
+
+  it('Reading section changes font size and persists via set_config', async () => {
+    const { findByText, getByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    await findByText('Reading');
+    await fireEvent.click(getByText('xl'));
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ font_size: 'xl' }),
+    }));
+  });
 });

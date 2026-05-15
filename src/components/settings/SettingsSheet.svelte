@@ -4,6 +4,7 @@
   import DefaultSourceSection from './DefaultSourceSection.svelte';
   import HotkeySection from './HotkeySection.svelte';
   import AppearanceSection from './AppearanceSection.svelte';
+  import ReadingSection from './ReadingSection.svelte';
   import { getConfig, hasApiKey, setConfig } from '../../lib/ipc';
   import { config } from '../../lib/stores.svelte';
   import { applyTheme } from '../../theme/theme';
@@ -48,6 +49,7 @@
       <DefaultSourceSection cfg={cfg} onchange={onChange} />
       <HotkeySection cfg={cfg} onchange={onChange} />
       <AppearanceSection cfg={cfg} onchange={onChange} />
+      <ReadingSection cfg={cfg} onchange={onChange} />
     </div>
   </div>
 {/if}
