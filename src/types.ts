@@ -13,6 +13,7 @@ export interface AppConfig {
   theme: Theme;
   default_meeting_source: string | null;
   default_mic: string | null;
+  mode: Mode;
 }
 
 export interface SessionRow {

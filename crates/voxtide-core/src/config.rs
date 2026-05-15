@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::translation::WhichLang;
+use crate::translation::{Mode, WhichLang};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +22,10 @@ pub struct AppConfig {
     pub theme: Theme,
     pub default_meeting_source: Option<String>,
     pub default_mic: Option<String>,
+    // Persisted last-used capture mode. `#[serde(default)]` so pre-0.1.2 config.json
+    // files that pre-date this field still load (and start in Meeting).
+    #[serde(default)]
+    pub mode: Mode,
 }
 
 impl Default for AppConfig {
@@ -34,6 +38,7 @@ impl Default for AppConfig {
             theme: Theme::System,
             default_meeting_source: None,
             default_mic: None,
+            mode: Mode::Meeting,
         }
     }
 }

@@ -1,5 +1,5 @@
 use voxtide_core::config::{AppConfig, ConfigStore, Theme};
-use voxtide_core::translation::WhichLang;
+use voxtide_core::translation::{Mode, WhichLang};
 
 #[test]
 fn default_config_has_expected_shape() {
@@ -11,6 +11,43 @@ fn default_config_has_expected_shape() {
     assert!(matches!(cfg.theme, Theme::System));
     assert!(cfg.default_meeting_source.is_none());
     assert!(cfg.default_mic.is_none());
+    assert!(matches!(cfg.mode, Mode::Meeting));
+}
+
+#[test]
+fn pre_mode_field_config_json_still_loads() {
+    // Simulates a config.json written by v0.1.1 (before the `mode` field existed).
+    // Should round-trip successfully and default to Meeting.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    std::fs::write(
+        &path,
+        r#"{
+  "language_a": "en",
+  "language_b": "vi",
+  "mine": "b",
+  "hotkey": "Ctrl+Shift+V",
+  "theme": "system",
+  "default_meeting_source": null,
+  "default_mic": null
+}"#,
+    )
+    .unwrap();
+    let loaded = ConfigStore::at(&path).load().unwrap();
+    assert!(matches!(loaded.mode, Mode::Meeting));
+}
+
+#[test]
+fn mode_round_trips() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConfigStore::at(dir.path().join("config.json"));
+    let cfg = AppConfig {
+        mode: Mode::Conversation,
+        ..AppConfig::default()
+    };
+    store.save(&cfg).unwrap();
+    let loaded = store.load().unwrap();
+    assert!(matches!(loaded.mode, Mode::Conversation));
 }
 
 #[test]

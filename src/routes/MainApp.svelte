@@ -111,11 +111,16 @@
 
   $effect(() => {
     const list = mode === 'meeting' ? devices.loopbacks : devices.mics;
-    const first = list[0];
-    if (!first) return;
-    if (!selectedSource || !list.some(s => s.id === selectedSource!.id)) {
-      selectedSource = first;
+    if (list.length === 0) return;
+    if (selectedSource && !list.some(s => s.id === selectedSource!.id)) {
+      selectedSource = null;
     }
+    if (selectedSource) return;
+    const savedId = mode === 'meeting'
+      ? config.config?.default_meeting_source
+      : config.config?.default_mic;
+    const saved = savedId ? list.find(s => s.id === savedId) : null;
+    selectedSource = saved ?? list[0]!;
   });
 
   function refreshSources() {
@@ -156,6 +161,7 @@
     (async () => {
       const cfg = await getConfig();
       config.setConfig(cfg);
+      mode = cfg.mode;
       applyTheme(cfg.theme);
       config.setHasApiKey(await hasApiKey(config.apiKeyAccount));
       sessions = await listSessions();
@@ -200,6 +206,27 @@
   }
 
   async function onStop()       { await stopSession(); }
+  async function onModeChange(m: Mode) {
+    if (m === mode) return;
+    mode = m;
+    const c = config.config;
+    if (!c || c.mode === m) return;
+    const next = { ...c, mode: m };
+    await setConfig(next);
+    config.setConfig(next);
+  }
+  async function onSourceChange(d: DeviceEntry) {
+    selectedSource = d;
+    const c = config.config;
+    if (!c) return;
+    const next = mode === 'meeting'
+      ? { ...c, default_meeting_source: d.id }
+      : { ...c, default_mic: d.id };
+    if (next.default_meeting_source === c.default_meeting_source &&
+        next.default_mic === c.default_mic) return;
+    await setConfig(next);
+    config.setConfig(next);
+  }
   async function onSwap()       {
     const c = config.config!;
     const next = { ...c, mine: (c.mine === 'a' ? 'b' : 'a') as WhichLang };
@@ -226,7 +253,7 @@
 
 <VoxWindow>
   <Toolbar
-    {mode} onmode={(m) => mode = m}
+    {mode} onmode={onModeChange}
     recording={session.recording}
     onstart={onStart} onstop={onStop}
     onsettings={onSettings} onoverlay={onOverlayToggle}
@@ -236,7 +263,7 @@
     onlangpick={onLangPick}
     source={selectedSource}
     sourceOptions={mode === 'meeting' ? meetingSources : micSources}
-    onsource={(d) => selectedSource = d} />
+    onsource={onSourceChange} />
 
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
 
