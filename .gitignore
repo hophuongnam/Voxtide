@@ -12,3 +12,7 @@ dist/
 
 # Tauri 2 regenerates these from capabilities/ on every build (acl-manifests.json + *-schema.json)
 /src-tauri/gen/schemas/
+
+# Implementation plans live alongside specs but are convention-tracked locally only —
+# only docs/superpowers/specs/ is committed. Keeps the tree clean for release.sh's pre-flight.
+/docs/superpowers/plans/
