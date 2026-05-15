@@ -119,3 +119,34 @@ describe('MainApp delete flow', () => {
     expect(node).toBeTruthy();
   });
 });
+
+describe('MainApp reading config', () => {
+  it('passes show_pinyin through to a live zh transcript line', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'zh', language_b: 'en', mine: 'a',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'conversation', font_size: 'm', show_pinyin: true,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+    const { transcript } = await import('../src/lib/stores.svelte');
+    transcript.reset();   // store is a module singleton — isolate from other tests
+
+    const { container } = render(MainApp);
+
+    // Drive a final zh line through the transcript store the same way
+    // handleCoreEvent would, then assert RubyText rendered it.
+    transcript.final({ status: 'original', text: '你好', chip: null, language: 'zh', ts_ms: 1 });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('ruby').length).toBe(2);
+    });
+  });
+});

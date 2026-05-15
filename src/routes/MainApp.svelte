@@ -26,7 +26,7 @@
   import { LANG_NAMES } from '../lib/languages';
   import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
-  import type { Mode, SessionRow, WhichLang } from '../types';
+  import type { AppConfig, FontSize, Mode, SessionRow, WhichLang } from '../types';
 
   let mode = $state<Mode>('meeting');
   let sessions = $state<SessionRow[]>([]);
@@ -145,6 +145,8 @@
   const langB = $derived({ code: (config.config?.language_b ?? 'vi').toUpperCase(),
                            name: LANG_NAMES[config.config?.language_b ?? 'vi'] ?? '' });
   const mine: WhichLang = $derived(config.config?.mine ?? 'b');
+  const fontSize: FontSize = $derived(config.config?.font_size ?? 'm');
+  const showPinyin: boolean = $derived(config.config?.show_pinyin ?? false);
 
   const meetingSources = $derived(devices.loopbacks);
   const micSources     = $derived(devices.mics);
@@ -285,6 +287,13 @@
     await setConfig(next);
     config.setConfig(next);
   }
+  async function onReadingChange(next: AppConfig) {
+    const c = config.config;
+    if (!c) return;
+    if (c.font_size === next.font_size && c.show_pinyin === next.show_pinyin) return;
+    await setConfig(next);
+    config.setConfig(next);
+  }
   async function onLangPick(which: WhichLang, code: string) {
     const c = config.config!;
     if (which === 'a' && code === c.language_b) return;
@@ -356,7 +365,9 @@
           original={pastOriginal}
           translation={pastTranslation}
           liveOriginal=""
-          liveTranslation="" />
+          liveTranslation=""
+          {fontSize} {showPinyin}
+          cfg={config.config} onconfigchange={onReadingChange} />
       {:else if !session.recording && transcript.original.length === 0 && transcript.translation.length === 0}
         <EmptyState {mode} />
       {:else}
@@ -365,7 +376,9 @@
           original={transcript.original}
           translation={transcript.translation}
           liveOriginal={transcript.liveOriginal}
-          liveTranslation={transcript.liveTranslation} />
+          liveTranslation={transcript.liveTranslation}
+          {fontSize} {showPinyin}
+          cfg={config.config} onconfigchange={onReadingChange} />
       {/if}
       <StatusBar
         recording={session.recording}
