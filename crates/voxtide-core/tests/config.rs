@@ -1,4 +1,4 @@
-use voxtide_core::config::{AppConfig, ConfigStore, Theme};
+use voxtide_core::config::{AppConfig, ConfigStore, FontSize, Theme};
 use voxtide_core::translation::{Mode, WhichLang};
 
 #[test]
@@ -74,4 +74,50 @@ fn loading_missing_file_returns_default() {
     let store = ConfigStore::at(dir.path().join("missing.json"));
     let cfg = store.load().unwrap();
     assert_eq!(cfg, AppConfig::default());
+}
+
+#[test]
+fn default_config_has_reading_defaults() {
+    let cfg = AppConfig::default();
+    assert!(matches!(cfg.font_size, FontSize::M));
+    assert!(!cfg.show_pinyin);
+}
+
+#[test]
+fn pre_reading_fields_config_json_still_loads() {
+    // Simulates a config.json written before font_size/show_pinyin existed.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    std::fs::write(
+        &path,
+        r#"{
+  "language_a": "en",
+  "language_b": "vi",
+  "mine": "b",
+  "hotkey": "Ctrl+Shift+V",
+  "theme": "system",
+  "default_meeting_source": null,
+  "default_mic": null,
+  "mode": "meeting"
+}"#,
+    )
+    .unwrap();
+    let loaded = ConfigStore::at(&path).load().unwrap();
+    assert!(matches!(loaded.font_size, FontSize::M));
+    assert!(!loaded.show_pinyin);
+}
+
+#[test]
+fn reading_fields_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConfigStore::at(dir.path().join("config.json"));
+    let cfg = AppConfig {
+        font_size: FontSize::Xl,
+        show_pinyin: true,
+        ..AppConfig::default()
+    };
+    store.save(&cfg).unwrap();
+    let loaded = store.load().unwrap();
+    assert!(matches!(loaded.font_size, FontSize::Xl));
+    assert!(loaded.show_pinyin);
 }

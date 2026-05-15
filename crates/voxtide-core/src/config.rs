@@ -13,6 +13,17 @@ pub enum Theme {
     System,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum FontSize {
+    Xs,
+    S,
+    #[default]
+    M,
+    L,
+    Xl,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppConfig {
     pub language_a: String,
@@ -26,6 +37,10 @@ pub struct AppConfig {
     // files that pre-date this field still load (and start in Meeting).
     #[serde(default)]
     pub mode: Mode,
+    #[serde(default)]
+    pub font_size: FontSize,
+    #[serde(default)]
+    pub show_pinyin: bool,
 }
 
 impl Default for AppConfig {
@@ -39,6 +54,8 @@ impl Default for AppConfig {
             default_meeting_source: None,
             default_mic: None,
             mode: Mode::Meeting,
+            font_size: FontSize::M,
+            show_pinyin: false,
         }
     }
 }
