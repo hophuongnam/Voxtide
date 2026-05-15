@@ -32,7 +32,8 @@
     onclick={onclick}>
     <div class="flex items-center justify-between mb-1">
       <span class="text-[11px]" style:color="var(--vt-muted)">{time}</span>
-      <span class="text-[10px]" style:color="var(--vt-subtle)"
+      <span class="text-[10px] transition-opacity {canDelete && ondelete ? 'group-hover:opacity-0' : ''}"
+            style:color="var(--vt-subtle)"
             style:font-family="'Geist Mono Variable', monospace">{dur}</span>
     </div>
     <div class="flex items-center gap-1.5 mb-1.5">
@@ -67,9 +68,9 @@
       data-testid="delete-session"
       aria-label="Delete transcript"
       onclick={handleDelete}
-      class="absolute top-1.5 right-1.5 w-6 h-6 rounded inline-flex items-center justify-center bg-transparent border-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+      class="absolute top-1 right-1.5 w-7 h-7 rounded inline-flex items-center justify-center bg-transparent border-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
       style:color="var(--vt-subtle)">
-      <Icon name="trash" size={13} />
+      <Icon name="trash" size={16} />
     </button>
   {/if}
 </div>

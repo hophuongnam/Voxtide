@@ -7,10 +7,11 @@ const props = {
   levelDb: -18, latencyMs: 262, mode: 'meeting' as const,
   translationSummary: 'one_way → VI', model: 'stt-rt-v4',
   audioFormat: '16 kHz · mono · s16le',
+  version: '0.1.1',
 };
 
 describe('StatusBar visibility breakpoints', () => {
-  it('shows all 6 fields at 920px', () => {
+  it('shows all 7 fields at 920px', () => {
     const { container } = render(StatusBar, { props: { ...props, width: 920 } });
     const text = container.textContent ?? '';
     expect(text).toContain('REC');
@@ -19,6 +20,11 @@ describe('StatusBar visibility breakpoints', () => {
     expect(text).toContain('262 ms');
     expect(text).toContain('one_way → VI');
     expect(text).toContain('16 kHz');
+    expect(text).toContain('v0.1.1');
+  });
+  it('always shows version, even at narrow widths', () => {
+    const { container } = render(StatusBar, { props: { ...props, width: 320 } });
+    expect(container.textContent ?? '').toContain('v0.1.1');
   });
   it('hides audio format below 900px', () => {
     const { container } = render(StatusBar, { props: { ...props, width: 720 } });

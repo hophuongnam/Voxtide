@@ -316,6 +316,7 @@
         translationSummary={summary}
         model="stt-rt-v4"
         audioFormat="16 kHz · mono · s16le"
+        version={__APP_VERSION__}
         width={mainWidth - 240} />
     </div>
   </div>

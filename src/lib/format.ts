@@ -2,10 +2,10 @@ export interface Group<T> { label: 'Today' | 'Yesterday' | 'This week' | 'Earlie
 
 export function groupByDate<T>(items: T[], getMs: (x: T) => number, nowMs: number = Date.now()): Group<T>[] {
   const now = new Date(nowMs);
-  const startOfDayUtc = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  const today = startOfDayUtc(now);
-  const yesterday = today - 24 * 3600 * 1000;
-  const weekStart = today - 6 * 24 * 3600 * 1000;
+  const startOfDayLocal = (y: number, m: number, d: number) => new Date(y, m, d).getTime();
+  const today = startOfDayLocal(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = startOfDayLocal(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const weekStart = startOfDayLocal(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
   const labels: Group<T>['label'][] = ['Today', 'Yesterday', 'This week', 'Earlier'];
   const buckets: Record<Group<T>['label'], T[]> = {

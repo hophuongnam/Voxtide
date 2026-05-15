@@ -11,6 +11,7 @@
     translationSummary: string;
     model: string;
     audioFormat: string;
+    version: string;
     width: number;
   }
   const p: Props = $props();
@@ -46,4 +47,5 @@
   <div class="flex-1"></div>
   {#if showSummary}<span>{p.translationSummary}</span>{/if}
   {#if showFormat}<span style:color="var(--vt-dim)">│</span><span>{p.audioFormat}</span>{/if}
+  <span style:color="var(--vt-dim)">│</span><span>v{p.version}</span>
 </div>
