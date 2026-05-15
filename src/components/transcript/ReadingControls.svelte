@@ -13,13 +13,13 @@
        style:background="var(--vt-surface)" style:border="0.5px solid var(--vt-border)">
     {#each sizes as s}
       {@const active = cfg.font_size === s}
-      <button type="button" onclick={() => setSize(s)}
+      <button type="button" onclick={() => setSize(s)} aria-pressed={active}
               class="px-2 py-1 rounded text-[10px] cursor-pointer border-0 uppercase"
               style:background={active ? 'var(--vt-surface3)' : 'transparent'}
               style:color={active ? 'var(--vt-text)' : 'var(--vt-muted)'}>{s}</button>
     {/each}
   </div>
-  <button type="button" onclick={togglePinyin}
+  <button type="button" onclick={togglePinyin} aria-pressed={cfg.show_pinyin}
           class="flex items-center justify-between w-full px-2 py-1.5 rounded text-[11px] cursor-pointer border-0"
           style:background="transparent" style:color="var(--vt-text)">
     <span>拼 Show pinyin</span>

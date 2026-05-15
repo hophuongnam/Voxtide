@@ -12,7 +12,7 @@
        style:background="var(--vt-surface)" style:border="0.5px solid var(--vt-border)">
     {#each opts as t}
       {@const active = cfg.theme === t}
-      <button type="button" onclick={() => set(t)}
+      <button type="button" onclick={() => set(t)} aria-pressed={active}
               class="px-3 py-1.5 rounded text-[11px] cursor-pointer border-0 capitalize"
               style:background={active ? 'var(--vt-surface3)' : 'transparent'}
               style:color={active ? 'var(--vt-text)' : 'var(--vt-muted)'}>{t}</button>
