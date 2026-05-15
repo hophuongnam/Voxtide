@@ -22,6 +22,7 @@
     fontSize = 'm', showPinyin = false, cfg = null, onconfigchange = () => {},
   }: Props = $props();
 
+  // The `m` value must stay in sync with Line.svelte's var(--vt-transcript-size, 13.5px) fallback.
   const FONT_PX: Record<FontSize, string> = {
     xs: '11px', s: '12.5px', m: '13.5px', l: '16px', xl: '19px',
   };

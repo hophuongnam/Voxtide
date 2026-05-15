@@ -15,6 +15,7 @@
        style:color="var(--vt-dim)" style:font-family="'Geist Mono Variable', monospace">{ts}</div>
   <div>
     {#if line.chip}<SpeakerChip letter={line.chip} lang={line.language?.toUpperCase() ?? null} />{/if}
+    <!-- 13.5px fallback must equal FONT_PX.m in TranscriptPane.svelte -->
     <div data-testid="line-text" class="leading-relaxed"
          style:font-size="var(--vt-transcript-size, 13.5px)"
          style:color={line.live ? 'var(--vt-muted)' : 'var(--vt-text)'}>
