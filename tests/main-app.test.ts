@@ -16,6 +16,7 @@ const { invokeMock } = vi.hoisted(() => ({
       language_a: 'en', language_b: 'vi', mine: 'b',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
       default_meeting_source: null, default_mic: null,
+      mode: 'meeting', font_size: 'm', show_pinyin: false,
     };
     if (cmd === 'has_api_key') return true;
     if (cmd === 'list_sessions') return sampleSessions;
@@ -80,7 +81,7 @@ describe('MainApp delete flow', () => {
         language_a: 'en', language_b: 'vi', mine: 'b',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
-        mode: 'meeting',
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return sampleSessions;
@@ -106,7 +107,7 @@ describe('MainApp delete flow', () => {
         language_a: 'en', language_b: 'vi', mine: 'b',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null,
-        mode: 'meeting',
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return false;
       if (cmd === 'list_sessions') return [];

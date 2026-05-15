@@ -4,6 +4,7 @@ export type Mode = 'meeting' | 'conversation';
 export type WhichLang = 'a' | 'b';
 export type TranslationStatus = 'original' | 'translation' | 'none';
 export type Theme = 'light' | 'dark' | 'system';
+export type FontSize = 'xs' | 's' | 'm' | 'l' | 'xl';
 
 export interface AppConfig {
   language_a: string;
@@ -14,6 +15,8 @@ export interface AppConfig {
   default_meeting_source: string | null;
   default_mic: string | null;
   mode: Mode;
+  font_size: FontSize;
+  show_pinyin: boolean;
 }
 
 export interface SessionRow {
