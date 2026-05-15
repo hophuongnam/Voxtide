@@ -21,6 +21,14 @@ async fn main() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Auto-persist main window size + position to ~/Library/Application Support/Voxtide/.window-state.
+        // The overlay window is denylisted: it has a fixed-by-design hover-strip layout that
+        // shouldn't be perturbed by restored state from a prior session.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["overlay"])
+                .build(),
+        )
         .on_window_event(|window, event| {
             // macOS pattern: red-traffic-light closes the window but keeps the app
             // running in the dock; dock-click re-shows it (handled in the run loop).
