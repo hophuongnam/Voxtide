@@ -44,13 +44,14 @@
       <div class="flex-1"></div>
       <div class="relative" bind:this={rcWrap}>
         <button type="button" onclick={() => rcOpen = !rcOpen}
+                aria-haspopup="true" aria-expanded={rcOpen} aria-label="Reading options"
                 class="px-1.5 py-[2px] rounded text-[10px] cursor-pointer"
                 style:background="var(--vt-surface)" style:color="var(--vt-muted)"
                 style:border="0.5px solid var(--vt-border)">Aa</button>
         {#if rcOpen}
           <div class="absolute right-0 mt-1 z-20 rounded-md"
                style:background="var(--vt-surface)" style:border="0.5px solid var(--vt-border)">
-            <ReadingControls cfg={cfg} onchange={(n) => onconfigchange(n)} />
+            <ReadingControls cfg={cfg} onchange={onconfigchange} />
           </div>
         {/if}
       </div>
