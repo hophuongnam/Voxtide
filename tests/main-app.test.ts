@@ -182,4 +182,52 @@ describe('MainApp reading config', () => {
       expect(root.style.getPropertyValue('--vt-transcript-size')).toBe('19px');
     });
   });
+
+  it('past-viewer TranscriptPane receives fontSize and showPinyin from config', async () => {
+    const pastSession = {
+      id: 99, started_at: Date.now() - 120_000, ended_at: Date.now() - 60_000,
+      mode: 'conversation', lang_a: 'zh', lang_b: 'en', device_label: null,
+      duration_ms: 60_000,
+    };
+    const zhToken = {
+      id: 1, session_id: 99, ts_ms: 1, text: '你好', language: 'zh',
+      status: 'original', speaker: null,
+    };
+
+    invokeMock.mockClear();
+    (invokeMock as any).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'zh', language_b: 'en', mine: 'a',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'conversation', font_size: 'xl', show_pinyin: true,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [pastSession];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      if (cmd === 'get_session') return { session: pastSession, tokens: [zhToken] };
+      return null;
+    });
+
+    const { transcript } = await import('../src/lib/stores.svelte');
+    transcript.reset();
+
+    const { container } = render(MainApp);
+
+    // Wait for the sidebar session item to appear, then click it to enter past-viewer.
+    await waitFor(() => {
+      expect(container.querySelectorAll('button[data-active]').length).toBeGreaterThan(0);
+    });
+    const sessionBtn = container.querySelector('button[data-active]') as HTMLElement;
+    await fireEvent.click(sessionBtn);
+
+    // After the get_session IPC resolves, past-viewer TranscriptPane should render
+    // with --vt-transcript-size: 19px (font_size 'xl') and ruby elements (show_pinyin + zh token).
+    await waitFor(() => {
+      const root = container.querySelector('[data-testid="transcript-root"]') as HTMLElement;
+      expect(root).not.toBeNull();
+      expect(root.style.getPropertyValue('--vt-transcript-size')).toBe('19px');
+      expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
+    });
+  });
 });

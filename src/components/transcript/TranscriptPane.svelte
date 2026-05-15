@@ -100,6 +100,9 @@
     {#each original as line}
       <Line {line} {showPinyin} />
     {/each}
+    <!-- Live-line language is derived from the 2-letter ISO code (e.g. 'zh');
+         the pinyin gate in Line.svelte matches `language === 'zh'`. A non-2-letter
+         or regional code (zh-Hans, cmn) would silently disable pinyin on live lines. -->
     {#if liveOriginal}
       <Line line={{ ts_ms: Date.now(), status: 'original', text: liveOriginal,
                     language: a.code.toLowerCase(), chip: null, live: true }} {showPinyin} />
