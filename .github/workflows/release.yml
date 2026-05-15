@@ -4,8 +4,15 @@ on:
   push:
     tags: ['v*.*.*']
   # Manual re-trigger for an existing tag (e.g. after editing this workflow or rotating
-  # signing secrets). Pass the tag as `ref` when dispatching from the CLI/UI.
+  # signing secrets). Run from `main` and pass the tag to build via the `tag` input —
+  # `--ref` would otherwise check out the workflow yaml from the tag, which may not
+  # have this dispatch trigger.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build (e.g. v0.1.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -27,6 +34,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On push, github.ref is the tag itself. On workflow_dispatch, fall back
+          # to the tag input so the build matches the release we're appending to.
+          ref: ${{ inputs.tag || github.ref }}
       - uses: pnpm/action-setup@v3
         with: { version: 9 }
       - uses: actions/setup-node@v4
@@ -53,6 +64,8 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          # Same dual-source as checkout: tag-name from input (dispatch) or github.ref_name (push).
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             target/${{ matrix.target }}/release/bundle/**/*.msi
             target/${{ matrix.target }}/release/bundle/**/*.nsis.exe
