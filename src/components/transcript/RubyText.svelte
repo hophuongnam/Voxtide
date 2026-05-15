@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { toPinyin } from '../../lib/pinyin';
+  import { toPinyin, type PinyinChar } from '../../lib/pinyin';
 
   interface Props { text: string }
   const { text }: Props = $props();
@@ -9,7 +9,7 @@
     | { kind: 'ruby'; char: string; pinyin: string };
 
   const segments = $derived.by<Segment[]>(() => {
-    let chars;
+    let chars: PinyinChar[];
     try {
       chars = toPinyin(text);
     } catch {
@@ -29,6 +29,8 @@
   });
 </script>
 
+<!-- Keep this on ONE line: line breaks become whitespace text nodes that
+     visually separate adjacent ruby characters. Do not reformat/split. -->
 {#each segments as s}{#if s.kind === 'plain'}{s.text}{:else}<ruby>{s.char}<rt>{s.pinyin}</rt></ruby>{/if}{/each}
 
 <style>
