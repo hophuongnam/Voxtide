@@ -44,18 +44,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-      - run: pnpm tauri build --target ${{ matrix.target }}
-        env:
-          # Code-signing skipped on CI for v1 (per spec §11).
-          TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-
-      - name: upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: voxtide-${{ matrix.os }}
-          path: |
-            target/${{ matrix.target }}/release/bundle/**/*.dmg
-            target/${{ matrix.target }}/release/bundle/**/*.msi
-            target/${{ matrix.target }}/release/bundle/**/*.exe
-          if-no-files-found: warn
+      # Bundle step intentionally not run on CI: tauri.conf.json's
+      # `createUpdaterArtifacts: true` requires TAURI_SIGNING_PRIVATE_KEY, which
+      # we don't expose to PR builds (extractable from forks). The bundle is
+      # exercised end-to-end by release.yml on tag push, with the secret available.
