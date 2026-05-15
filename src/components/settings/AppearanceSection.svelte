@@ -6,7 +6,7 @@
   const opts: Theme[] = ['light', 'dark', 'system'];
   function set(t: Theme) { applyTheme(t); onchange({ ...cfg, theme: t }); }
 </script>
-<section class="pb-1">
+<section class="pb-5 mb-5" style:border-bottom="0.5px solid var(--vt-border)">
   <div class="text-[12px] font-semibold mb-2" style:color="var(--vt-text)">Appearance</div>
   <div class="inline-flex p-[2px] rounded-md"
        style:background="var(--vt-surface)" style:border="0.5px solid var(--vt-border)">
