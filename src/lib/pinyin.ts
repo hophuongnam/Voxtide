@@ -10,11 +10,6 @@ export interface PinyinChar {
 // For non-Chinese codepoints isZh is false and pinyin echoes origin.
 // For an unresolvable Han codepoint pinyin also echoes origin — treat
 // any "no real pinyin" case as plain text (empty string).
-interface PinyinRecord {
-  origin: string;
-  pinyin: string;
-  isZh: boolean;
-}
 
 const CACHE_MAX = 256;
 const cache = new Map<string, PinyinChar[]>();
@@ -23,7 +18,7 @@ function compute(text: string): PinyinChar[] {
   const records = pinyin(text, {
     type: 'all',
     toneType: 'symbol',
-  }) as unknown as PinyinRecord[];
+  });
 
   return records.map((r) => {
     const real = r.isZh && r.pinyin && r.pinyin !== r.origin;
