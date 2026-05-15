@@ -1,7 +1,7 @@
 <script lang="ts">
   import Column from './Column.svelte';
   import Line from './Line.svelte';
-  import type { Mode, TranscriptLine, WhichLang } from '../../types';
+  import type { Mode, TranscriptLine, WhichLang, FontSize, AppConfig } from '../../types';
 
   interface Props {
     mode: Mode;
@@ -12,8 +12,19 @@
     translation: TranscriptLine[];
     liveOriginal: string;
     liveTranslation: string;
+    fontSize?: FontSize;
+    showPinyin?: boolean;
+    cfg?: AppConfig | null;
+    onconfigchange?: (next: AppConfig) => void;
   }
-  const { mode, a, b, mine, original, translation, liveOriginal, liveTranslation }: Props = $props();
+  const {
+    mode, a, b, mine, original, translation, liveOriginal, liveTranslation,
+    fontSize = 'm', showPinyin = false, cfg = null, onconfigchange = () => {},
+  }: Props = $props();
+
+  const FONT_PX: Record<FontSize, string> = {
+    xs: '11px', s: '12.5px', m: '13.5px', l: '16px', xl: '19px',
+  };
 
   const originalCode = $derived(mode === 'meeting'
     ? `${a.code} · multi-speaker`
@@ -81,26 +92,27 @@
   });
 </script>
 
-<div class="flex-1 flex overflow-hidden">
+<div class="flex-1 flex overflow-hidden" data-testid="transcript-root"
+     style:--vt-transcript-size={FONT_PX[fontSize]}>
   <Column label="Original" code={originalCode} sub={mode === 'meeting' ? 'diarized' : 'per turn'}
-          bodyRef={(el) => leftEl = el}>
+          bodyRef={(el) => leftEl = el} cfg={cfg} onconfigchange={onconfigchange}>
     {#each original as line}
-      <Line {line} />
+      <Line {line} {showPinyin} />
     {/each}
     {#if liveOriginal}
       <Line line={{ ts_ms: Date.now(), status: 'original', text: liveOriginal,
-                    language: a.code.toLowerCase(), chip: null, live: true }} />
+                    language: a.code.toLowerCase(), chip: null, live: true }} {showPinyin} />
     {/if}
   </Column>
   <div class="w-px" style:background="var(--vt-border)"></div>
   <Column label="Translation" code={translationCode} sub={translationSub} accent
-          bodyRef={(el) => rightEl = el}>
+          bodyRef={(el) => rightEl = el} cfg={cfg} onconfigchange={onconfigchange}>
     {#each translation as line}
-      <Line {line} translated />
+      <Line {line} {showPinyin} translated />
     {/each}
     {#if liveTranslation}
       <Line line={{ ts_ms: Date.now(), status: 'translation', text: liveTranslation,
-                    language: b.code.toLowerCase(), chip: null, live: true }} translated />
+                    language: b.code.toLowerCase(), chip: null, live: true }} {showPinyin} translated />
     {/if}
   </Column>
 </div>
