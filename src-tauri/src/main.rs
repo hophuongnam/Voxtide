@@ -19,6 +19,8 @@ async fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
             // macOS pattern: red-traffic-light closes the window but keeps the app
             // running in the dock; dock-click re-shows it (handled in the run loop).

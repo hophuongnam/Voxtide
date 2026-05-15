@@ -38,8 +38,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExODUyQkQwQTgzRkMyRUYKUldUdndqK28wQ3VGb1VIbWVjZnZPSkpQYUZRQU1weFN6SFQxTytKc2pqVXFKTk1oUmYxZ2xHTzAK",
+      "endpoints": [
+        "https://github.com/hophuongnam/Voxtide/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["app", "dmg", "msi", "nsis"],
     "icon": [
       "icons/32x32.png",

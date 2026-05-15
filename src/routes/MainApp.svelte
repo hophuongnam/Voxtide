@@ -10,8 +10,11 @@
   import SettingsSheet from '../components/settings/SettingsSheet.svelte';
 
   import PermissionBanner from '../components/PermissionBanner.svelte';
+  import UpdateBanner from '../components/UpdateBanner.svelte';
   import { applyTheme } from '../theme/theme';
   import { listen } from '@tauri-apps/api/event';
+  import { check, type Update } from '@tauri-apps/plugin-updater';
+  import { relaunch } from '@tauri-apps/plugin-process';
   import {
     deleteSession,
     getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
@@ -45,6 +48,43 @@
   let pendingDelete = $state<SessionRow | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+
+  // Auto-update flow. Silent check on launch; banner appears only if an update is found.
+  let pendingUpdate = $state<Update | null>(null);
+  let updateInstalling = $state(false);
+  let updateProgress = $state<number | null>(null);
+  let updateError = $state<string | null>(null);
+  let updateDismissed = $state(false);
+
+  async function onUpdateInstall() {
+    if (!pendingUpdate) return;
+    updateInstalling = true;
+    updateError = null;
+    updateProgress = 0;
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+      await pendingUpdate.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          contentLength = event.data.contentLength ?? 0;
+        } else if (event.event === 'Progress') {
+          downloaded += event.data.chunkLength;
+          updateProgress = contentLength > 0
+            ? Math.min(100, Math.round((downloaded / contentLength) * 100))
+            : null;
+        }
+      });
+      await relaunch();
+    } catch (e) {
+      updateError = String(e instanceof Error ? e.message : e);
+      updateInstalling = false;
+    }
+  }
+  function onUpdateDismiss() {
+    pendingUpdate = null;
+    updateError = null;
+    updateDismissed = true;
+  }
 
   function onDeleteRequest(row: SessionRow) {
     pendingDelete = row;
@@ -171,6 +211,18 @@
         if (session.recording) await onStop();
         else await onStart();
       });
+
+      // Silent update check. Skipped outside the Tauri runtime (vitest, vite preview).
+      // Errors (offline, no manifest yet, bad signature) stay in the console — never
+      // block the app or surface a banner unless we find an actual update.
+      if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+        try {
+          const update = await check();
+          if (update && !updateDismissed) pendingUpdate = update;
+        } catch (e) {
+          console.debug('updater check failed', e);
+        }
+      }
     })();
 
     return () => { unlisten?.(); unHotkey?.(); ro.disconnect(); clearInterval(tick); };
@@ -266,6 +318,13 @@
     onsource={onSourceChange} />
 
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
+  <UpdateBanner
+    version={pendingUpdate?.version ?? null}
+    busy={updateInstalling}
+    progress={updateProgress}
+    error={updateError}
+    oninstall={onUpdateInstall}
+    ondismiss={onUpdateDismiss} />
 
   <div class="flex-1 flex overflow-hidden">
     <Sidebar

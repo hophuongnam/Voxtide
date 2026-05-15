@@ -12,6 +12,8 @@
     "global-shortcut:default",
     "opener:default",
     "opener:allow-open-url",
-    "positioner:default"
+    "positioner:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
