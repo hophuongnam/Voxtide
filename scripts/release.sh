@@ -77,10 +77,10 @@ grep -q "^version = \"${VERSION}\"$" src-tauri/Cargo.toml || die "version bump f
 sed -i '' -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+([-A-Za-z0-9.]*)?\"$/version = \"${VERSION}\"/" crates/voxtide-core/Cargo.toml
 grep -q "^version = \"${VERSION}\"$" crates/voxtide-core/Cargo.toml || die "version bump failed in crates/voxtide-core/Cargo.toml"
 
-blue "refreshing Cargo.lock…"
+blue "refreshing Cargo.lock (gitignored, local only — keeps the upcoming build in sync)…"
 cargo check -p voxtide -p voxtide-core --quiet
 
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml Cargo.lock
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml
 git commit -m "chore: bump version to ${VERSION}"
 git tag "v${VERSION}"
 green "✓ committed + tagged v${VERSION}"
