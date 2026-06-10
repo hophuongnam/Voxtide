@@ -88,4 +88,32 @@ describe('SettingsSheet', () => {
       cfg: expect.objectContaining({ font_size: 'xl' }),
     }));
   });
+
+  it('hotkey field commits on change, not per keystroke', async () => {
+    const { findByDisplayValue } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    const input = await findByDisplayValue('Ctrl+Shift+V') as HTMLInputElement;
+    invokeMock.mockClear();
+    // Typing must NOT persist — an oninput save wrote garbage like
+    // "Ctrl+Shif" to disk on every keystroke.
+    await fireEvent.input(input, { target: { value: 'Alt+F' } });
+    expect(invokeMock).not.toHaveBeenCalledWith('set_config', expect.anything());
+    // Committing (Enter/blur → change) persists exactly once.
+    await fireEvent.change(input, { target: { value: 'Alt+F5' } });
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ hotkey: 'Alt+F5' }),
+    }));
+  });
+
+  it('hotkey rejection from the backend renders an inline error instead of throwing', async () => {
+    const { findByDisplayValue, findByText } = render(SettingsSheet, { props: { open: true, onclose: () => {} } });
+    const input = await findByDisplayValue('Ctrl+Shift+V') as HTMLInputElement;
+    invokeMock.mockImplementationOnce(async (cmd: string) => {
+      if (cmd === 'set_config') {
+        throw { kind: 'invalid-hotkey', message: "could not register 'Bogus'" };
+      }
+      return null;
+    });
+    await fireEvent.change(input, { target: { value: 'Bogus' } });
+    await findByText(/could not register/);
+  });
 });

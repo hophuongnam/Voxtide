@@ -47,7 +47,9 @@ impl Default for AppConfig {
         Self {
             language_a: "en".into(),
             language_b: "vi".into(),
-            hotkey: "Ctrl+Shift+V".into(),
+            // A valid global-shortcut-plugin accelerator: ⌘⇧V on macOS,
+            // Ctrl+Shift+V elsewhere — the binding registration always used.
+            hotkey: "CommandOrControl+Shift+V".into(),
             theme: Theme::System,
             default_meeting_source: None,
             default_mic: None,
@@ -80,7 +82,22 @@ impl ConfigStore {
 
     pub fn load(&self) -> Result<AppConfig> {
         match std::fs::read(&self.path) {
-            Ok(b) => serde_json::from_slice(&b).map_err(Error::from),
+            Ok(b) => {
+                let mut cfg: AppConfig = serde_json::from_slice(&b).map_err(Error::from)?;
+                // Migration shim: before the hotkey field was honored it was
+                // write-only — every config.json carries the old default
+                // "Ctrl+Shift+V" while registration hardcoded
+                // CommandOrControl+Shift+V (⌘⇧V on macOS). Registering the
+                // stored string literally would silently switch existing macOS
+                // installs to ⌃⇧V, so exactly the old default is rewritten to
+                // the accelerator the app actually bound. Nobody deliberately
+                // chose "Ctrl+Shift+V" (the field did nothing), and on Windows
+                // the two are identical anyway.
+                if cfg.hotkey == "Ctrl+Shift+V" {
+                    cfg.hotkey = "CommandOrControl+Shift+V".into();
+                }
+                Ok(cfg)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AppConfig::default()),
             Err(e) => Err(Error::from(e)),
         }

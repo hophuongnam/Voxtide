@@ -63,8 +63,19 @@ fn main() {
                 }
             });
             app.manage(state);
-            // Register the global hotkey on startup.
-            hotkey::register(app.handle())?;
+            // Register the configured global hotkey. Failure is NON-FATAL —
+            // the app is fully usable without it, and an OS-level conflict
+            // with another app's shortcut is an expected runtime condition.
+            // (A `?` here aborted the whole startup.)
+            let accel = app
+                .state::<state::AppState>()
+                .config
+                .load()
+                .map(|c| c.hotkey)
+                .unwrap_or_else(|_| voxtide_core::config::AppConfig::default().hotkey);
+            if let Err(e) = hotkey::register(app.handle(), &accel) {
+                tracing::warn!(?e, accel = %accel, "global hotkey registration failed; continuing without a hotkey");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

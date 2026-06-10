@@ -1,5 +1,7 @@
 <script lang="ts">
   import HoverStrip from './HoverStrip.svelte';
+  import { formatHotkey } from '../../lib/format';
+  import { DEFAULT_HOTKEY } from '../../lib/modes';
 
   interface Props {
     lines: string[];
@@ -9,8 +11,13 @@
     onclose: () => void;
     attempt?: number;
     retryInMs?: number;
+    /** Display label for the global toggle hotkey, platform-formatted.
+     *  OverlayApp passes the configured binding; defaults to the app default
+     *  so the hint is never blank. */
+    hotkeyLabel?: string;
   }
   const p: Props = $props();
+  const hotkeyLabel = $derived(p.hotkeyLabel ?? formatHotkey(DEFAULT_HOTKEY));
 
   const opacityFor = (i: number, n: number) =>
     n === 1 ? 1 : 0.35 + (0.65 * i) / (n - 1);
@@ -74,7 +81,7 @@
     {:else}
       <div class="text-xs mb-1" style:color="var(--vt-dim)">
         Voxtide overlay · open the main window and press
-        <span style:font-family="'Geist Mono Variable', monospace" style:color="var(--vt-muted)">⌃⇧V</span>
+        <span style:font-family="'Geist Mono Variable', monospace" style:color="var(--vt-muted)">{hotkeyLabel}</span>
         to start
       </div>
       <div

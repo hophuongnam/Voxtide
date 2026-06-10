@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupByDate, formatDuration, formatTime } from '../src/lib/format';
+import { groupByDate, formatDuration, formatTime, formatHotkey } from '../src/lib/format';
 
 describe('groupByDate', () => {
   // Anchor everything in local time so the test is timezone-agnostic.
@@ -31,5 +31,28 @@ describe('formatTime', () => {
   it('renders short clock time', () => {
     const t = new Date('2026-05-13T14:22:00').getTime();
     expect(formatTime(t)).toMatch(/14:22|2:22/);
+  });
+});
+
+describe('formatHotkey', () => {
+  const setPlatform = (value: string) =>
+    Object.defineProperty(window.navigator, 'platform', { value, configurable: true });
+
+  it('renders mac glyphs joined without separators', () => {
+    setPlatform('MacIntel');
+    expect(formatHotkey('CommandOrControl+Shift+V')).toBe('⌘⇧V');
+    expect(formatHotkey('Control+Shift+V')).toBe('⌃⇧V');
+    expect(formatHotkey('Alt+x')).toBe('⌥X');
+  });
+
+  it('renders plus-joined names elsewhere', () => {
+    setPlatform('Win32');
+    expect(formatHotkey('CommandOrControl+Shift+V')).toBe('Ctrl+Shift+V');
+    expect(formatHotkey('Alt+F5')).toBe('Alt+F5');
+  });
+
+  it('passes through unknown keys uppercased', () => {
+    setPlatform('MacIntel');
+    expect(formatHotkey('F9')).toBe('F9');
   });
 });

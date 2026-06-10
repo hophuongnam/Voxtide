@@ -43,3 +43,28 @@ export function formatElapsed(ms: number): string {
   const ss = String(s % 60).padStart(2, '0');
   return `${hh}:${mm}:${ss}`;
 }
+
+const MAC_KEY_GLYPHS: Record<string, string> = {
+  CommandOrControl: '⌘', CmdOrCtrl: '⌘', Command: '⌘', Cmd: '⌘', Super: '⌘', Meta: '⌘',
+  Control: '⌃', Ctrl: '⌃',
+  Shift: '⇧',
+  Alt: '⌥', Option: '⌥',
+};
+const PC_KEY_NAMES: Record<string, string> = {
+  CommandOrControl: 'Ctrl', CmdOrCtrl: 'Ctrl', Command: 'Ctrl', Cmd: 'Ctrl', Control: 'Ctrl', Ctrl: 'Ctrl',
+  Super: 'Win', Meta: 'Win',
+  Shift: 'Shift',
+  Alt: 'Alt', Option: 'Alt',
+};
+
+/** Render a global-shortcut accelerator (e.g. `CommandOrControl+Shift+V`) the
+ *  way the current platform displays shortcuts: glyphs joined bare on macOS
+ *  (`⌘⇧V`), plus-joined names elsewhere (`Ctrl+Shift+V`). Unknown keys pass
+ *  through uppercased. */
+export function formatHotkey(accel: string): string {
+  const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+  const parts = accel.split('+').map((p) => p.trim()).filter(Boolean);
+  const map = mac ? MAC_KEY_GLYPHS : PC_KEY_NAMES;
+  const mapped = parts.map((p) => map[p] ?? p.toUpperCase());
+  return mapped.join(mac ? '' : '+');
+}

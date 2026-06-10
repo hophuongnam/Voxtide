@@ -6,11 +6,40 @@ fn default_config_has_expected_shape() {
     let cfg = AppConfig::default();
     assert_eq!(cfg.language_a, "en");
     assert_eq!(cfg.language_b, "vi");
-    assert_eq!(cfg.hotkey, "Ctrl+Shift+V");
+    // A valid plugin accelerator meaning ⌘⇧V on macOS / Ctrl+Shift+V
+    // elsewhere — what registration has always actually bound.
+    assert_eq!(cfg.hotkey, "CommandOrControl+Shift+V");
     assert!(matches!(cfg.theme, Theme::System));
     assert!(cfg.default_meeting_source.is_none());
     assert!(cfg.default_mic.is_none());
     assert!(matches!(cfg.mode, Mode::Meeting));
+}
+
+#[test]
+fn stale_write_only_hotkey_default_migrates_on_load() {
+    // Every config.json written before the hotkey field was honored carries
+    // the old default "Ctrl+Shift+V" (the field was write-only; registration
+    // hardcoded CommandOrControl+Shift+V). Loading must rewrite exactly that
+    // string to the accelerator the app actually bound, or existing macOS
+    // installs would silently switch from ⌘⇧V to ⌃⇧V.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let cfg = AppConfig {
+        hotkey: "Ctrl+Shift+V".into(),
+        ..AppConfig::default()
+    };
+    std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+    let loaded = ConfigStore::at(&path).load().unwrap();
+    assert_eq!(loaded.hotkey, "CommandOrControl+Shift+V");
+
+    // A genuinely custom binding is left alone.
+    let cfg = AppConfig {
+        hotkey: "Alt+F5".into(),
+        ..AppConfig::default()
+    };
+    std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+    let loaded = ConfigStore::at(&path).load().unwrap();
+    assert_eq!(loaded.hotkey, "Alt+F5");
 }
 
 #[test]
