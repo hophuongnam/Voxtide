@@ -109,13 +109,53 @@ describe('transcript store', () => {
 describe('coalesceTokens (past-session viewer)', () => {
   it('coalesces same-speaker tokens across sentence boundaries, matches live store', () => {
     const out = coalesceTokens([
-      { id: 1, session_id: 1, ts_ms: 1, text: 'First.',  language: 'en', status: 'original',    speaker: '1' },
-      { id: 2, session_id: 1, ts_ms: 2, text: ' Second.', language: 'en', status: 'original',    speaker: '1' },
-      { id: 3, session_id: 1, ts_ms: 1, text: 'Một.',     language: 'vi', status: 'translation', speaker: '1' },
-      { id: 4, session_id: 1, ts_ms: 2, text: ' Hai.',    language: 'vi', status: 'translation', speaker: '1' },
+      { id: 1, session_id: 1, ts_ms: 1, text: 'First.',  language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 2, session_id: 1, ts_ms: 2, text: ' Second.', language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 3, session_id: 1, ts_ms: 1, text: 'Một.',     language: 'vi', status: 'translation', speaker: '1', is_break: 0 },
+      { id: 4, session_id: 1, ts_ms: 2, text: ' Hai.',    language: 'vi', status: 'translation', speaker: '1', is_break: 0 },
     ]);
     expect(out.original).toHaveLength(1);
     expect(out.translation).toHaveLength(1);
     expect(out.original[0]!.text).toBe('First. Second.');
+  });
+
+  it('replays persisted utterance breaks: same-speaker rows split at break rows (both columns)', () => {
+    const out = coalesceTokens([
+      { id: 1, session_id: 1, ts_ms: 1, text: 'went to the store', language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 2, session_id: 1, ts_ms: 1, text: 'đi ra cửa hàng',    language: 'vi', status: 'translation', speaker: '1', is_break: 0 },
+      { id: 3, session_id: 1, ts_ms: 2, text: '',                  language: null, status: 'none',        speaker: null, is_break: 1 },
+      { id: 4, session_id: 1, ts_ms: 3, text: 'then drove home',   language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 5, session_id: 1, ts_ms: 3, text: 'rồi lái xe về',     language: 'vi', status: 'translation', speaker: '1', is_break: 0 },
+    ]);
+    // Same speaker throughout — without the break replay these collapse to 1 row.
+    expect(out.original).toHaveLength(2);
+    expect(out.translation).toHaveLength(2);
+    expect(out.original[0]!.text).toBe('went to the store');
+    expect(out.original[1]!.text).toBe('then drove home');
+    expect(out.translation[1]!.text).toBe('rồi lái xe về');
+  });
+
+  it('break rows render nothing themselves (no empty rows)', () => {
+    const out = coalesceTokens([
+      { id: 1, session_id: 1, ts_ms: 1, text: '', language: null, status: 'none', speaker: null, is_break: 1 },
+      { id: 2, session_id: 1, ts_ms: 2, text: 'hi', language: 'en', status: 'original', speaker: '1', is_break: 0 },
+    ]);
+    expect(out.original).toHaveLength(1);
+    expect(out.original[0]!.text).toBe('hi');
+    expect(out.translation).toHaveLength(0);
+  });
+
+  it('a break is consumed per column: each column splits once at the boundary', () => {
+    const out = coalesceTokens([
+      { id: 1, session_id: 1, ts_ms: 1, text: 'a1', language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 2, session_id: 1, ts_ms: 2, text: '',   language: null, status: 'none',        speaker: null, is_break: 1 },
+      // Translation of the post-break utterance arrives before its original:
+      // both columns must still split exactly once.
+      { id: 3, session_id: 1, ts_ms: 3, text: 'b1-trans', language: 'vi', status: 'translation', speaker: '1', is_break: 0 },
+      { id: 4, session_id: 1, ts_ms: 4, text: 'b1', language: 'en', status: 'original',    speaker: '1', is_break: 0 },
+      { id: 5, session_id: 1, ts_ms: 5, text: ' b2', language: 'en', status: 'original',   speaker: '1', is_break: 0 },
+    ]);
+    expect(out.original.map((l) => l.text)).toEqual(['a1', 'b1 b2']);
+    expect(out.translation.map((l) => l.text)).toEqual(['b1-trans']);
   });
 });

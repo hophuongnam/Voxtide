@@ -38,6 +38,9 @@ async fn session_persists_finals_and_emits_events() {
             speaker: Some("1".into()),
             ts_ms: 100,
         },
+        // A speech pause. Must be persisted as a break row (not broadcast-only)
+        // so replay chunks rows at the same boundaries the live view did.
+        TranslationEvent::UtteranceBreak,
         TranslationEvent::Final {
             text: "Xin chào".into(),
             language: Some("vi".into()),
@@ -93,9 +96,23 @@ async fn session_persists_finals_and_emits_events() {
     let tokens = Tokens::list_by_session(store.pool(), session_id)
         .await
         .unwrap();
-    assert_eq!(tokens.len(), 2);
-    assert_eq!(tokens[0].text, "Hello");
-    assert_eq!(tokens[1].text, "Xin chào");
+    // Two finals + one break row. The break row stamps wall-clock now_ms()
+    // while the scripted finals persist their tiny ts values verbatim, so
+    // ts-ordered listing puts the break LAST here (real sessions interleave
+    // correctly — finals carry receive-stamped epoch ts too). Assert
+    // position-agnostically; the replay ordering semantics are pinned by the
+    // frontend coalesceTokens tests, which control ts.
+    assert_eq!(tokens.len(), 3, "two finals + one persisted break row");
+    let breaks: Vec<_> = tokens.iter().filter(|t| t.is_break == 1).collect();
+    assert_eq!(
+        breaks.len(),
+        1,
+        "the pause must persist as exactly one break row"
+    );
+    assert_eq!(breaks[0].text, "", "break rows carry no text");
+    let finals: Vec<_> = tokens.iter().filter(|t| t.is_break == 0).collect();
+    assert_eq!(finals[0].text, "Hello");
+    assert_eq!(finals[1].text, "Xin chào");
     // Timestamps are persisted AS RECEIVED — the worker no longer subtracts the
     // session start. The scripted finals carry ts_ms 100 and 110, so those exact
     // values must land in the DB. (Before the fix the worker stored
@@ -103,11 +120,11 @@ async fn session_persists_finals_and_emits_events() {
     // negative number — which is the bug that made reopened sessions render at
     // the 1970 epoch.)
     assert_eq!(
-        tokens[0].ts_ms, 100,
+        finals[0].ts_ms, 100,
         "ts must be persisted unmodified (no subtraction)"
     );
     assert_eq!(
-        tokens[1].ts_ms, 110,
+        finals[1].ts_ms, 110,
         "ts must be persisted unmodified (no subtraction)"
     );
 }

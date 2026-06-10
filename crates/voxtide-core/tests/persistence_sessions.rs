@@ -80,6 +80,7 @@ async fn delete_removes_session_and_cascades_to_tokens_and_fts() {
             language: None,
             status: "original".into(),
             speaker: None,
+            is_break: 0,
         },
     )
     .await

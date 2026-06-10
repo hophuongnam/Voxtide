@@ -26,6 +26,9 @@ export interface TokenRow {
   language: string | null;
   status: string;
   speaker: string | null;
+  /** 1 = persisted utterance-break marker (empty text; splits BOTH columns
+   *  on replay), 0 = ordinary token. */
+  is_break: number;
 }
 export const getSession = (id: number) =>
   invoke<{ session: SessionRow; tokens: TokenRow[] }>('get_session', { id });

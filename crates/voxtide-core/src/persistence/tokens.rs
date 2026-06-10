@@ -11,6 +11,10 @@ pub struct NewToken {
     pub language: Option<String>,
     pub status: String,
     pub speaker: Option<String>,
+    /// 1 = utterance-break marker row (empty text, breaks BOTH columns on
+    /// replay), 0 = ordinary token. i64 (not bool) so the wire shape matches
+    /// the SQLite column and the TS `is_break: number` type.
+    pub is_break: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -22,6 +26,8 @@ pub struct TokenRow {
     pub language: Option<String>,
     pub status: String,
     pub speaker: Option<String>,
+    /// See [`NewToken::is_break`].
+    pub is_break: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -38,8 +44,8 @@ impl Tokens {
     pub async fn insert(pool: &SqlitePool, t: NewToken) -> Result<i64> {
         // Use execute() + last_insert_rowid() (Task 17 found that RETURNING+pool can race).
         let res = sqlx::query(
-            "INSERT INTO tokens(session_id, ts_ms, text, language, status, speaker) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tokens(session_id, ts_ms, text, language, status, speaker, is_break) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(t.session_id)
         .bind(t.ts_ms)
@@ -47,6 +53,7 @@ impl Tokens {
         .bind(&t.language)
         .bind(&t.status)
         .bind(&t.speaker)
+        .bind(t.is_break)
         .execute(pool)
         .await?;
         Ok(res.last_insert_rowid())
@@ -58,7 +65,7 @@ impl Tokens {
         // could flip speaker A↔B chips between re-queries, since chip
         // assignment in the frontend uses first-seen order.
         let rows = sqlx::query_as::<_, TokenRow>(
-            "SELECT id, session_id, ts_ms, text, language, status, speaker \
+            "SELECT id, session_id, ts_ms, text, language, status, speaker, is_break \
              FROM tokens WHERE session_id = ? ORDER BY ts_ms ASC, id ASC",
         )
         .bind(session_id)

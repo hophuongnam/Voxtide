@@ -9,10 +9,11 @@ function asStatus(s: string): TranslationStatus {
 
 /**
  * Convert persisted DB tokens into the coalesced two-column shape the
- * live store produces. Same coalesce rules: same-speaker consecutive
- * tokens merge into one line; break on sentence-end punctuation or
- * speaker change. Filters Soniox angle-bracket control markers that
- * may have been persisted before the core-side filter landed.
+ * live store produces. Same grouping rules as the live store (via the
+ * shared {@link appendFinal} reducer): break on speaker-chip change or a
+ * persisted utterance-break row — never on punctuation. Filters Soniox
+ * angle-bracket control markers that may have been persisted before the
+ * core-side filter landed.
  */
 export function coalesceTokens(tokens: TokenRow[]): {
   original: TranscriptLine[];
@@ -32,24 +33,27 @@ export function coalesceTokens(tokens: TokenRow[]): {
     original: [],
     translation: [],
   };
+  // Mirrors the live store's per-column pending-break flags: a break row arms
+  // both columns; each column's next final consumes its own flag.
+  let breakOriginal = false;
+  let breakTranslation = false;
   for (const t of tokens) {
-    if (t.text.startsWith('<') && t.text.endsWith('>')) continue;
-    const status = asStatus(t.status);
-    const list = status === 'translation' ? out.translation : out.original;
-    const last = list[list.length - 1];
-    const chip = chipFor(t.speaker);
-    if (last && last.chip === chip) {
-      list[list.length - 1] = { ...last, text: last.text + t.text };
+    if (t.is_break) {
+      breakOriginal = true;
+      breakTranslation = true;
       continue;
     }
-    list.push({
-      ts_ms: t.ts_ms,
-      status,
-      text: t.text,
-      language: t.language,
-      chip,
-      live: false,
-    });
+    if (t.text.startsWith('<') && t.text.endsWith('>')) continue;
+    const status = asStatus(t.status);
+    const isTrans = status === 'translation';
+    const pendingBreak = isTrans ? breakTranslation : breakOriginal;
+    if (isTrans) breakTranslation = false;
+    else breakOriginal = false;
+    appendFinal(
+      isTrans ? out.translation : out.original,
+      { status, text: t.text, chip: chipFor(t.speaker), language: t.language, ts_ms: t.ts_ms },
+      pendingBreak,
+    );
   }
   return out;
 }
@@ -61,6 +65,40 @@ export interface LiveInput {
   language: string | null;
 }
 export interface FinalInput extends LiveInput { ts_ms: number; }
+
+/**
+ * THE row-grouping rule, shared by the live store and replay
+ * ({@link coalesceTokens}) so the two can never drift: merge into the last
+ * row when the speaker chip is unchanged AND no pause break is pending;
+ * otherwise start a new row. We intentionally do NOT break on sentence-end
+ * punctuation: ASCII `.!?` vs CJK `。！？` would tokenize asymmetrically
+ * across languages, so the columns would desync. Speaker change and an
+ * utterance break are the only row boundaries — both apply symmetrically
+ * to both columns, preserving alignment.
+ *
+ * Mutates `list` in place and returns it. A merged row keeps the first
+ * final's ts_ms (row timestamp = start of the speaker turn).
+ */
+export function appendFinal(
+  list: TranscriptLine[],
+  input: FinalInput,
+  pendingBreak: boolean,
+): TranscriptLine[] {
+  const last = list[list.length - 1];
+  if (last && last.chip === input.chip && !pendingBreak) {
+    list[list.length - 1] = { ...last, text: last.text + input.text };
+    return list;
+  }
+  list.push({
+    ts_ms: input.ts_ms,
+    status: input.status,
+    text: input.text,
+    language: input.language,
+    chip: input.chip,
+    live: false,
+  });
+  return list;
+}
 
 export interface TranscriptStore {
   readonly original: TranscriptLine[];
@@ -82,6 +120,12 @@ export function createTranscriptStore(): TranscriptStore {
   let liveOriginal = $state('');
   let liveTranslation = $state('');
   // Set by utteranceBreak(); consumed by the next final() in each column.
+  // NOTE (suspected live-only desync edge): Soniox's translation final for the
+  // PRE-pause utterance can arrive after the <end> break event. That late
+  // final then consumes the translation column's pending flag, and the
+  // post-pause translation merges into the old row — original splits,
+  // translation doesn't. Replay is immune (break rows are positioned in the
+  // persisted stream); confirm/deny during the live smoke.
   let breakOriginal = false;
   let breakTranslation = false;
 
@@ -96,39 +140,14 @@ export function createTranscriptStore(): TranscriptStore {
     },
     final(input) {
       const isTrans = input.status === 'translation';
-      const list = isTrans ? translation : original;
-      const last = list[list.length - 1];
       // A pending pause break is consumed by this final regardless of outcome.
       const pendingBreak = isTrans ? breakTranslation : breakOriginal;
       if (isTrans) breakTranslation = false; else breakOriginal = false;
-      // Merge into the previous row only for the same speaker AND when no pause
-      // break is pending. We intentionally do NOT break on sentence-end
-      // punctuation: ASCII `.!?` vs CJK `。！？` would tokenize asymmetrically
-      // across languages, so the columns would desync. Speaker change and an
-      // explicit utteranceBreak() are the only row boundaries — both apply
-      // symmetrically to both columns, preserving alignment.
-      if (last && last.chip === input.chip && !pendingBreak) {
-        const merged: TranscriptLine = { ...last, text: last.text + input.text };
-        const next = list.slice(0, -1).concat(merged);
-        if (input.status === 'translation') { translation = next; liveTranslation = ''; }
-        else { original = next; liveOriginal = ''; }
-        return;
-      }
-      const line: TranscriptLine = {
-        ts_ms: input.ts_ms,
-        status: input.status,
-        text: input.text,
-        language: input.language,
-        chip: input.chip,
-        live: false,
-      };
-      if (input.status === 'translation') {
-        translation = [...translation, line];
-        liveTranslation = '';
-      } else {
-        original = [...original, line];
-        liveOriginal = '';
-      }
+      // Grouping lives in the shared appendFinal reducer (same rule as replay).
+      // The $state arrays are deep proxies, so in-place mutation is reactive.
+      appendFinal(isTrans ? translation : original, input, pendingBreak);
+      if (isTrans) liveTranslation = '';
+      else liveOriginal = '';
     },
     utteranceBreak() {
       breakOriginal = true;

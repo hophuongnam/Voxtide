@@ -522,6 +522,7 @@ async fn handle_event(
                         _ => "original".into(),
                     },
                     speaker: speaker_letter,
+                    is_break: 0,
                 },
             )
             .await
@@ -546,6 +547,27 @@ async fn handle_event(
             });
         }
         TranslationEvent::UtteranceBreak => {
+            // Persist the pause as a break row (empty text, is_break = 1) so
+            // replay chunks rows at the same boundaries the live view did —
+            // broadcast-only breaks made a pause-chunked live session collapse
+            // into giant rows when reopened. Persist before broadcasting, same
+            // contract as finals.
+            if let Err(e) = Tokens::insert(
+                store.pool(),
+                NewToken {
+                    session_id,
+                    ts_ms: now_ms(),
+                    text: String::new(),
+                    language: None,
+                    status: "none".into(),
+                    speaker: None,
+                    is_break: 1,
+                },
+            )
+            .await
+            {
+                tracing::warn!(?e, "break insert");
+            }
             let _ = tx.send(CoreEvent::UtteranceBreak);
         }
         // A provider failure: surface the message to the UI, then keep
