@@ -27,14 +27,29 @@ pub struct SessionConfig {
     pub language_b: String,
 }
 
+/// One finalized transcript token within a [`TranslationEvent::Finals`] frame.
+#[derive(Debug, Clone)]
+pub struct FinalToken {
+    pub text: String,
+    pub language: Option<String>,
+    pub status: tokens::TranslationStatus,
+    pub speaker: Option<String>,
+    /// Wall-clock epoch ms stamped when the token was received.
+    pub ts_ms: i64,
+}
+
 #[derive(Debug, Clone)]
 pub enum TranslationEvent {
-    Final {
-        text: String,
-        language: Option<String>,
-        status: tokens::TranslationStatus,
-        speaker: Option<String>,
-        ts_ms: i64,
+    /// One wire frame's worth of finalized tokens, delivered as a single
+    /// event so the consumer can persist the burst atomically (one DB
+    /// transaction per frame instead of one autocommit+fsync per token).
+    Finals {
+        tokens: Vec<FinalToken>,
+        /// Audio-anchored end-to-end lag for this frame: milliseconds of
+        /// audio written to the provider minus the provider's
+        /// fully-processed watermark (`final_audio_proc_ms`). `None` when
+        /// the frame carried no watermark (mocks, or providers without one).
+        lag_ms: Option<u64>,
     },
     Live {
         text: String,

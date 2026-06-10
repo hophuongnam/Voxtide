@@ -9,7 +9,7 @@
 
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::broadcast;
 
@@ -258,8 +258,14 @@ impl SessionController {
         let (stop_worker_tx, mut stop_worker_rx) = tokio::sync::oneshot::channel::<()>();
 
         let join = tokio::spawn(async move {
-            let mut speakers = SpeakerMap::new();
-            let mut latency = LatencyTracker::new(64);
+            let mut ctx = EventCtx {
+                store: &store,
+                tx: &tx,
+                session_id,
+                speakers: SpeakerMap::new(),
+                latency: LatencyTracker::new(64),
+                last_latency_emit: None,
+            };
             let started = started_at;
             // Once the audio source is drained we still need to keep polling the provider for the
             // remaining tokens and the terminal Stopped event. `audio_done` disables the audio arm
@@ -323,13 +329,7 @@ impl SessionController {
                     // Receive translation events. Terminates the loop on None (closed) or Stopped.
                     ev = provider.next_event() => {
                         let Some(ev) = ev else { break; };
-                        if handle_event(
-                            &store, &tx, session_id,
-                            &mut speakers, &mut latency, ev,
-                        )
-                        .await
-                        .is_break()
-                        {
+                        if handle_event(&mut ctx, ev).await.is_break() {
                             break;
                         }
                     }
@@ -362,10 +362,7 @@ impl SessionController {
                 // remaining wait if the provider hasn't finished by then.
                 let _ = tokio::time::timeout(Duration::from_secs(3), async {
                     while let Some(ev) = provider.next_event().await {
-                        if handle_event(&store, &tx, session_id, &mut speakers, &mut latency, ev)
-                            .await
-                            .is_break()
-                        {
+                        if handle_event(&mut ctx, ev).await.is_break() {
                             break;
                         }
                     }
@@ -442,6 +439,22 @@ impl SessionController {
     }
 }
 
+/// Per-session worker state threaded through [`handle_event`]. One value
+/// spans the main select loop AND the post-stop EOS drain, so per-session
+/// accumulators (speaker chips, latency window, emit throttle) survive the
+/// transition between the two.
+struct EventCtx<'a> {
+    store: &'a Store,
+    tx: &'a broadcast::Sender<CoreEvent>,
+    session_id: i64,
+    speakers: SpeakerMap,
+    latency: LatencyTracker,
+    /// When the last [`CoreEvent::Latency`] was broadcast — emission is
+    /// throttled to at most one per second (a finals burst used to emit one
+    /// per token, each with a fresh sort of the 64-slot window).
+    last_latency_emit: Option<Instant>,
+}
+
 /// Handle one [`TranslationEvent`], shared verbatim by the worker's main select
 /// arm and its post-stop drain so the two can never diverge (persist + broadcast
 /// logic lives in exactly one place). Persists finals to the store, observes
@@ -451,17 +464,10 @@ impl SessionController {
 /// caller breaks its loop. Every other variant returns [`ControlFlow::Continue`]
 /// (including `Error`, which is forwarded as [`CoreEvent::Error`] but does NOT
 /// stop the loop: the provider sends `Stopped` right after).
-async fn handle_event(
-    store: &Store,
-    tx: &broadcast::Sender<CoreEvent>,
-    session_id: i64,
-    speakers: &mut SpeakerMap,
-    latency: &mut LatencyTracker,
-    ev: TranslationEvent,
-) -> ControlFlow<()> {
+async fn handle_event(ctx: &mut EventCtx<'_>, ev: TranslationEvent) -> ControlFlow<()> {
     match ev {
         TranslationEvent::Connected => {
-            let _ = tx.send(CoreEvent::ConnectionState {
+            let _ = ctx.tx.send(CoreEvent::ConnectionState {
                 state: "active",
                 attempt: None,
                 retry_in_ms: None,
@@ -471,7 +477,7 @@ async fn handle_event(
             attempt,
             retry_in_ms,
         } => {
-            let _ = tx.send(CoreEvent::ConnectionState {
+            let _ = ctx.tx.send(CoreEvent::ConnectionState {
                 state: "reconnecting",
                 attempt: Some(attempt),
                 retry_in_ms: Some(retry_in_ms),
@@ -483,68 +489,76 @@ async fn handle_event(
             status,
             speaker,
         } => {
-            let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
-            let _ = tx.send(CoreEvent::TranscriptLive {
+            let chip = speaker.as_deref().map(|s| ctx.speakers.chip_for(s));
+            let _ = ctx.tx.send(CoreEvent::TranscriptLive {
                 status,
                 text,
                 language,
                 chip,
             });
         }
-        TranslationEvent::Final {
-            text,
-            language,
-            status,
-            speaker,
-            ts_ms,
-        } => {
-            let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
-            let speaker_letter = chip.map(|c| c.to_string());
-            // Persist before broadcasting so a downstream listener that
-            // immediately queries the store sees the row.
-            if let Err(e) = Tokens::insert(
-                store.pool(),
-                NewToken {
-                    session_id,
-                    // Persist the timestamp AS RECEIVED. The live TranscriptFinal
-                    // event carries wall-clock epoch ms, and the frontend renders
-                    // both the live row and a reopened session's rows through the
-                    // same `new Date(ts_ms)` path — so persisting epoch (not a
-                    // session-relative offset) is what keeps reopened sessions
-                    // from rendering at the 1970 epoch. Cross-session FTS ordering
-                    // (`ORDER BY ts_ms DESC`) is also only globally correct on an
+        TranslationEvent::Finals { tokens, lag_ms } => {
+            // One pass building rows + broadcasts (chip_for mutates the map).
+            let mut rows = Vec::with_capacity(tokens.len());
+            let mut broadcasts = Vec::with_capacity(tokens.len());
+            for t in tokens {
+                let chip = t.speaker.as_deref().map(|s| ctx.speakers.chip_for(s));
+                rows.push(NewToken {
+                    session_id: ctx.session_id,
+                    // Persist the timestamp AS RECEIVED — wall-clock epoch ms.
+                    // The frontend renders live rows and reopened sessions
+                    // through the same `new Date(ts_ms)` path (a relative
+                    // offset here is the bug that rendered past sessions at
+                    // the 1970 epoch), and FTS recency ordering needs the
                     // absolute clock.
-                    ts_ms,
-                    text: text.clone(),
-                    language: language.clone(),
-                    status: match status {
+                    ts_ms: t.ts_ms,
+                    text: t.text.clone(),
+                    language: t.language.clone(),
+                    status: match t.status {
                         TranslationStatus::Translation => "translation".into(),
                         _ => "original".into(),
                     },
-                    speaker: speaker_letter,
+                    speaker: chip.map(|c| c.to_string()),
                     is_break: 0,
-                },
-            )
-            .await
-            {
+                });
+                broadcasts.push(CoreEvent::TranscriptFinal {
+                    status: t.status,
+                    text: t.text,
+                    language: t.language,
+                    chip,
+                    ts_ms: t.ts_ms,
+                });
+            }
+            // Persist the whole frame in ONE transaction (one fsync instead of
+            // N serial autocommits inline in the event loop), BEFORE
+            // broadcasting so a downstream listener that immediately queries
+            // the store sees the rows.
+            if let Err(e) = Tokens::insert_many(ctx.store.pool(), &rows).await {
                 tracing::warn!(?e, "tokens insert");
             }
-            // `ts_ms` is epoch ms, but the provider stamps it at WS receive —
-            // so this measures in-process handling lag (~0), not true audio
-            // latency; the audio-anchored latency rework replaces it. `.max(0)`
-            // guards the u64 cast against future-stamped events (the mock
-            // provider scripts arbitrary timestamps).
-            latency.observe((now_ms() - ts_ms).max(0) as u64);
-            if let Some(m) = latency.median_ms() {
-                let _ = tx.send(CoreEvent::Latency { median_ms: m });
+            // Audio-anchored latency: how far the provider's fully-processed
+            // watermark trails the audio we wrote to it — the real
+            // end-to-end signal (the old receive-stamped `now_ms() - ts_ms`
+            // measured in-process handling lag, permanently ~0). Broadcast at
+            // most once per second.
+            if let Some(lag) = lag_ms {
+                ctx.latency.observe(lag);
+                // (`map_or`, not `is_none_or`: workspace MSRV is 1.77.)
+                let due = ctx
+                    .last_latency_emit
+                    .map_or(true, |t| t.elapsed() >= Duration::from_secs(1));
+                if due {
+                    if let Some(m) = ctx.latency.median_ms() {
+                        let _ = ctx.tx.send(CoreEvent::Latency { median_ms: m });
+                        ctx.last_latency_emit = Some(Instant::now());
+                    }
+                }
             }
-            let _ = tx.send(CoreEvent::TranscriptFinal {
-                status,
-                text,
-                language,
-                chip,
-                ts_ms,
-            });
+            // One TranscriptFinal per token: the frontend wire contract is
+            // unchanged by the internal batching.
+            for b in broadcasts {
+                let _ = ctx.tx.send(b);
+            }
         }
         TranslationEvent::UtteranceBreak => {
             // Persist the pause as a break row (empty text, is_break = 1) so
@@ -553,9 +567,9 @@ async fn handle_event(
             // into giant rows when reopened. Persist before broadcasting, same
             // contract as finals.
             if let Err(e) = Tokens::insert(
-                store.pool(),
+                ctx.store.pool(),
                 NewToken {
-                    session_id,
+                    session_id: ctx.session_id,
                     ts_ms: now_ms(),
                     text: String::new(),
                     language: None,
@@ -568,7 +582,7 @@ async fn handle_event(
             {
                 tracing::warn!(?e, "break insert");
             }
-            let _ = tx.send(CoreEvent::UtteranceBreak);
+            let _ = ctx.tx.send(CoreEvent::UtteranceBreak);
         }
         // A provider failure: surface the message to the UI, then keep
         // looping. The provider sends `Stopped` immediately after, which
@@ -576,7 +590,7 @@ async fn handle_event(
         // Forwarded identically from the drain so an error racing an explicit
         // stop is never swallowed.
         TranslationEvent::Error(message) => {
-            let _ = tx.send(CoreEvent::Error { message });
+            let _ = ctx.tx.send(CoreEvent::Error { message });
         }
         TranslationEvent::Stopped => return ControlFlow::Break(()),
     }

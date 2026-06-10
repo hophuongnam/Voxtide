@@ -59,6 +59,33 @@ impl Tokens {
         Ok(res.last_insert_rowid())
     }
 
+    /// Insert a whole finals frame in ONE transaction: one commit (and at
+    /// most one fsync) instead of N serial autocommits. The FTS triggers run
+    /// inside the same transaction. Empty batches are a no-op.
+    pub async fn insert_many(pool: &SqlitePool, batch: &[NewToken]) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await?;
+        for t in batch {
+            sqlx::query(
+                "INSERT INTO tokens(session_id, ts_ms, text, language, status, speaker, is_break) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(t.session_id)
+            .bind(t.ts_ms)
+            .bind(&t.text)
+            .bind(&t.language)
+            .bind(&t.status)
+            .bind(&t.speaker)
+            .bind(t.is_break)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_by_session(pool: &SqlitePool, session_id: i64) -> Result<Vec<TokenRow>> {
         // Secondary sort by id (autoincrement = insertion order). Without it,
         // tokens sharing a ts_ms have indeterminate order — past-session view

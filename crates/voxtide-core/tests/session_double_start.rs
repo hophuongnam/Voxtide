@@ -8,7 +8,7 @@ use voxtide_core::persistence::Store;
 use voxtide_core::session::{CoreEvent, SessionController, StartArgs};
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent};
+use voxtide_core::translation::{FinalToken, Mode, SessionConfig, TranslationEvent};
 use voxtide_core::{Error, Result};
 
 /// Audio source whose `start()` always fails, simulating a denied mic / TCC
@@ -47,12 +47,15 @@ fn make_cfg() -> SessionConfig {
 fn make_provider() -> Box<MockProvider> {
     Box::new(MockProvider::with_script(vec![
         TranslationEvent::Connected,
-        TranslationEvent::Final {
-            text: "Hi".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: None,
-            ts_ms: 50,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hi".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: None,
+                ts_ms: 50,
+            }],
+            lag_ms: None,
         },
         TranslationEvent::Stopped,
     ]))

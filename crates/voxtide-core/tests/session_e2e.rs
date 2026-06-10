@@ -8,7 +8,7 @@ use voxtide_core::persistence::Store;
 use voxtide_core::session::{CoreEvent, SessionController, StartArgs};
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent};
+use voxtide_core::translation::{FinalToken, Mode, SessionConfig, TranslationEvent};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,22 +31,28 @@ async fn session_persists_finals_and_emits_events() {
             status: TranslationStatus::Original,
             speaker: Some("1".into()),
         },
-        TranslationEvent::Final {
-            text: "Hello".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 100,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hello".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 100,
+            }],
+            lag_ms: None,
         },
         // A speech pause. Must be persisted as a break row (not broadcast-only)
         // so replay chunks rows at the same boundaries the live view did.
         TranslationEvent::UtteranceBreak,
-        TranslationEvent::Final {
-            text: "Xin chào".into(),
-            language: Some("vi".into()),
-            status: TranslationStatus::Translation,
-            speaker: Some("1".into()),
-            ts_ms: 110,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Xin chào".into(),
+                language: Some("vi".into()),
+                status: TranslationStatus::Translation,
+                speaker: Some("1".into()),
+                ts_ms: 110,
+            }],
+            lag_ms: None,
         },
         TranslationEvent::Stopped,
     ];
@@ -130,6 +136,148 @@ async fn session_persists_finals_and_emits_events() {
 }
 
 #[tokio::test]
+async fn finals_frame_persists_batch_and_reports_audio_anchored_latency() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+    // One frame carrying TWO finals and an audio-anchored lag of 800 ms —
+    // the shape Soniox actually produces (original + translation finalized
+    // in the same WS frame).
+    let script = vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Finals {
+            tokens: vec![
+                FinalToken {
+                    text: "Hello".into(),
+                    language: Some("en".into()),
+                    status: TranslationStatus::Original,
+                    speaker: Some("1".into()),
+                    ts_ms: 100,
+                },
+                FinalToken {
+                    text: "Xin chào".into(),
+                    language: Some("vi".into()),
+                    status: TranslationStatus::Translation,
+                    speaker: Some("1".into()),
+                    ts_ms: 110,
+                },
+            ],
+            lag_ms: Some(800),
+        },
+        TranslationEvent::Stopped,
+    ];
+    let provider = Box::new(MockProvider::with_script(script));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+            },
+            source: wav,
+            provider,
+            device_label: None,
+        })
+        .await
+        .unwrap();
+
+    let mut finals_broadcast = 0;
+    let mut latency_events: Vec<u64> = Vec::new();
+    while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        match ev {
+            // The wire contract is unchanged by the internal batching: one
+            // TranscriptFinal per token.
+            CoreEvent::TranscriptFinal { .. } => finals_broadcast += 1,
+            CoreEvent::Latency { median_ms } => latency_events.push(median_ms),
+            CoreEvent::SessionStopped { .. } => break,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        finals_broadcast, 2,
+        "one TranscriptFinal broadcast per token"
+    );
+    assert_eq!(
+        latency_events,
+        vec![800],
+        "the frame's audio-anchored lag must surface as the latency median"
+    );
+
+    let tokens = Tokens::list_by_session(ctl.store().pool(), session_id)
+        .await
+        .unwrap();
+    assert_eq!(tokens.len(), 2, "the whole finals batch must persist");
+    assert_eq!(tokens[0].text, "Hello");
+    assert_eq!(tokens[1].text, "Xin chào");
+}
+
+#[tokio::test]
+async fn latency_emission_is_throttled_to_one_per_second() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+    let one = |text: &str, ts_ms: i64, lag: u64| TranslationEvent::Finals {
+        tokens: vec![FinalToken {
+            text: text.into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms,
+        }],
+        lag_ms: Some(lag),
+    };
+    // Three finals frames in immediate succession: only the FIRST may emit a
+    // CoreEvent::Latency — the rest land inside the 1 s throttle window.
+    let script = vec![
+        TranslationEvent::Connected,
+        one("a", 100, 800),
+        one("b", 110, 900),
+        one("c", 120, 1000),
+        TranslationEvent::Stopped,
+    ];
+    let provider = Box::new(MockProvider::with_script(script));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    ctl.start(StartArgs {
+        cfg: SessionConfig {
+            api_key: "test".into(),
+            mode: Mode::Meeting,
+            language_a: "en".into(),
+            language_b: "vi".into(),
+        },
+        source: wav,
+        provider,
+        device_label: None,
+    })
+    .await
+    .unwrap();
+
+    let mut latency_events: Vec<u64> = Vec::new();
+    while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        match ev {
+            CoreEvent::Latency { median_ms } => latency_events.push(median_ms),
+            CoreEvent::SessionStopped { .. } => break,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        latency_events,
+        vec![800],
+        "a burst of finals frames must emit at most one Latency per second \
+         (the first), not one per frame"
+    );
+}
+
+#[tokio::test]
 async fn provider_stream_ending_without_stopped_still_finalizes_session() {
     // Soniox can drop the websocket (server close / network blip / auth expiry)
     // so the stream ends with no terminal `Stopped` event. The session must
@@ -142,12 +290,15 @@ async fn provider_stream_ending_without_stopped_still_finalizes_session() {
     // NOTE: deliberately NO TranslationEvent::Stopped at the end.
     let provider = Box::new(MockProvider::with_script(vec![
         TranslationEvent::Connected,
-        TranslationEvent::Final {
-            text: "Hello".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 100,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hello".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 100,
+            }],
+            lag_ms: None,
         },
     ]));
 
@@ -289,28 +440,37 @@ async fn explicit_stop_drains_eos_flush_so_trailing_finals_persist() {
             status: TranslationStatus::Original,
             speaker: Some("1".into()),
         },
-        TranslationEvent::Final {
-            text: "script final".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 100,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "script final".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 100,
+            }],
+            lag_ms: None,
         },
     ];
     let flush_on_eos = vec![
-        TranslationEvent::Final {
-            text: "tail one".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 200,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "tail one".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 200,
+            }],
+            lag_ms: None,
         },
-        TranslationEvent::Final {
-            text: "tail two".into(),
-            language: Some("vi".into()),
-            status: TranslationStatus::Translation,
-            speaker: Some("1".into()),
-            ts_ms: 210,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "tail two".into(),
+                language: Some("vi".into()),
+                status: TranslationStatus::Translation,
+                speaker: Some("1".into()),
+                ts_ms: 210,
+            }],
+            lag_ms: None,
         },
         TranslationEvent::Stopped,
     ];
@@ -426,12 +586,15 @@ async fn audio_source_ending_triggers_eos_and_finalizes_session() {
     // 10s only guards a hang in start()/DB ops, which have no inner timeout.
     let script = vec![
         TranslationEvent::Connected,
-        TranslationEvent::Final {
-            text: "Hello".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 100,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hello".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 100,
+            }],
+            lag_ms: None,
         },
     ];
     let flush_on_eos = vec![TranslationEvent::Stopped];
@@ -495,12 +658,15 @@ async fn active_session_id_tracks_running_state() {
     let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
     let provider = Box::new(MockProvider::with_script(vec![
         TranslationEvent::Connected,
-        TranslationEvent::Final {
-            text: "Hello".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 100,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hello".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 100,
+            }],
+            lag_ms: None,
         },
         TranslationEvent::Stopped,
     ]));

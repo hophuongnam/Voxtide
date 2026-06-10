@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 
 use crate::Result;
@@ -21,6 +21,12 @@ impl Store {
         let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
+            // The documented safe pairing with WAL: commits skip the per-txn
+            // fsync (the WAL is synced at checkpoints), so the token hot path
+            // isn't serialized on disk flushes. An OS crash/power loss can
+            // lose the most recent commits but never corrupts the database;
+            // sqlx 0.7 otherwise leaves SQLite's default of FULL in place.
+            .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(8)

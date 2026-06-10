@@ -1,6 +1,8 @@
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
-use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider};
+use voxtide_core::translation::{
+    FinalToken, Mode, SessionConfig, TranslationEvent, TranslationProvider,
+};
 
 #[tokio::test]
 async fn mock_replays_a_script_after_open() {
@@ -12,12 +14,15 @@ async fn mock_replays_a_script_after_open() {
             status: TranslationStatus::Original,
             speaker: Some("1".into()),
         },
-        TranslationEvent::Final {
-            text: "Hello".into(),
-            language: Some("en".into()),
-            status: TranslationStatus::Original,
-            speaker: Some("1".into()),
-            ts_ms: 1,
+        TranslationEvent::Finals {
+            tokens: vec![FinalToken {
+                text: "Hello".into(),
+                language: Some("en".into()),
+                status: TranslationStatus::Original,
+                speaker: Some("1".into()),
+                ts_ms: 1,
+            }],
+            lag_ms: None,
         },
         TranslationEvent::Stopped,
     ];

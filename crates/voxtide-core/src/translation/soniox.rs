@@ -9,11 +9,16 @@ use tokio_tungstenite::{
 };
 
 use crate::translation::tokens::{parse_message, ServerMessage, TranslationStatus};
-use crate::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider};
+use crate::translation::{FinalToken, Mode, SessionConfig, TranslationEvent, TranslationProvider};
 use crate::{Error, Result};
 
 pub const SONIOX_WS: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
 pub const MODEL: &str = "stt-rt-v4";
+
+/// Bytes per millisecond of the audio we stream: pcm_s16le @ 16 kHz mono
+/// (matches `audio_format`/`sample_rate`/`num_channels` in
+/// [`build_initial_config`]) = 16000 × 2 / 1000.
+const PCM_BYTES_PER_MS: u64 = 32;
 
 pub fn build_initial_config(cfg: &SessionConfig) -> Value {
     let mut base = json!({
@@ -132,6 +137,26 @@ async fn fail_with(event_tx: &mpsc::Sender<TranslationEvent>, msg: String) {
     let _ = event_tx.send(TranslationEvent::Stopped).await;
 }
 
+/// Emit the finals accumulated from the current frame as ONE
+/// [`TranslationEvent::Finals`] event (no-op when empty). Called after the
+/// frame's token loop, and additionally just before an `<end>` marker so an
+/// utterance break never jumps ahead of finals that preceded it on the wire.
+async fn flush_finals(
+    event_tx: &mpsc::Sender<TranslationEvent>,
+    finals: &mut Vec<FinalToken>,
+    lag_ms: Option<u64>,
+) {
+    if finals.is_empty() {
+        return;
+    }
+    let _ = event_tx
+        .send(TranslationEvent::Finals {
+            tokens: std::mem::take(finals),
+            lag_ms,
+        })
+        .await;
+}
+
 #[async_trait::async_trait]
 impl TranslationProvider for SonioxBYOK {
     async fn open(&mut self, cfg: SessionConfig) -> Result<()> {
@@ -218,6 +243,12 @@ impl TranslationProvider for SonioxBYOK {
                 let mut got_tokens = false;
                 let mut finished = false;
                 let mut client_eos = false;
+                // Milliseconds of audio successfully written to THIS
+                // connection's socket. Per-connection (like Soniox's
+                // `final_audio_proc_ms` watermark, which restarts at 0 on a
+                // fresh connection) so the audio-anchored lag stays honest
+                // across reconnects.
+                let mut audio_ms_sent: u64 = 0;
                 'inner: loop {
                     tokio::select! {
                         // Outbound audio from the caller (borrowed by recv, survives reconnect).
@@ -227,10 +258,14 @@ impl TranslationProvider for SonioxBYOK {
                         out = audio_rx.recv(), if !client_eos => {
                             match out {
                                 Some(Outbound::Binary(b)) => {
+                                    let bytes = b.len() as u64;
                                     if let Err(e) = ws_tx.send(Message::Binary(b)).await {
                                         tracing::warn!(?e, "send audio; reconnecting");
                                         break 'inner;
                                     }
+                                    // Successful write: advance the watermark the
+                                    // audio-anchored latency is measured against.
+                                    audio_ms_sent += bytes / PCM_BYTES_PER_MS;
                                 }
                                 None => {
                                     // Caller dropped the audio sender (i.e., called close()).
@@ -249,12 +284,20 @@ impl TranslationProvider for SonioxBYOK {
                                         match parse_message(&s) {
                                             Ok(ServerMessage::Tokens(frame)) => {
                                                 // Soniox sends non-final tokens as a complete trailing-partial
-                                                // replacement per frame. Emit finals individually (preserves
-                                                // per-token ts_ms + speaker grouping), but combine each frame's
+                                                // replacement per frame. Batch the frame's finals into ONE
+                                                // Finals event (per-token ts_ms + speaker preserved inside;
+                                                // one event = one DB transaction downstream), and combine
                                                 // non-finals into one Live event per (translation vs not)
                                                 // bucket — frontend stores a single partial per status, and
                                                 // emitting one per token would leave only the last sub-word
                                                 // visible.
+                                                //
+                                                // Audio-anchored lag for this frame: how far the server's
+                                                // fully-processed watermark trails the audio we've written.
+                                                let lag_ms = frame
+                                                    .final_audio_proc_ms
+                                                    .map(|p| audio_ms_sent.saturating_sub(p));
+                                                let mut finals: Vec<FinalToken> = Vec::new();
                                                 let mut orig_text = String::new();
                                                 let mut orig_meta: Option<(Option<String>, Option<String>)> = None;
                                                 let mut trans_text = String::new();
@@ -270,6 +313,9 @@ impl TranslationProvider for SonioxBYOK {
                                                     // over-segmenting on every finalization.
                                                     if t.text.starts_with('<') && t.text.ends_with('>') {
                                                         if t.text == "<end>" {
+                                                            // Flush finals seen so far FIRST so the break stays
+                                                            // exactly where the wire put it relative to them.
+                                                            flush_finals(&event_tx, &mut finals, lag_ms).await;
                                                             let _ = event_tx
                                                                 .send(TranslationEvent::UtteranceBreak)
                                                                 .await;
@@ -280,15 +326,13 @@ impl TranslationProvider for SonioxBYOK {
                                                     // progress, so the reconnect budget may reset.
                                                     got_tokens = true;
                                                     if t.is_final {
-                                                        let _ = event_tx
-                                                            .send(TranslationEvent::Final {
-                                                                text: t.text,
-                                                                language: t.language,
-                                                                status: t.translation_status,
-                                                                speaker: t.speaker,
-                                                                ts_ms: SonioxBYOK::now_ms(),
-                                                            })
-                                                            .await;
+                                                        finals.push(FinalToken {
+                                                            text: t.text,
+                                                            language: t.language,
+                                                            status: t.translation_status,
+                                                            speaker: t.speaker,
+                                                            ts_ms: SonioxBYOK::now_ms(),
+                                                        });
                                                     } else if matches!(t.translation_status, TranslationStatus::Translation) {
                                                         trans_text.push_str(&t.text);
                                                         trans_meta = Some((t.language, t.speaker));
@@ -297,6 +341,7 @@ impl TranslationProvider for SonioxBYOK {
                                                         orig_meta = Some((t.language, t.speaker));
                                                     }
                                                 }
+                                                flush_finals(&event_tx, &mut finals, lag_ms).await;
                                                 if let Some((language, speaker)) = orig_meta {
                                                     let _ = event_tx
                                                         .send(TranslationEvent::Live {

@@ -102,6 +102,69 @@ async fn deleting_session_cascades_to_tokens_and_fts() {
 }
 
 #[tokio::test]
+async fn insert_many_lands_the_whole_batch() {
+    let s = open_store().await;
+    let session_id = Sessions::create(
+        s.pool(),
+        NewSession {
+            started_at: 0,
+            mode: "meeting".into(),
+            lang_a: "en".into(),
+            lang_b: "vi".into(),
+            device_label: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let batch = vec![
+        NewToken {
+            session_id,
+            ts_ms: 100,
+            text: "one".into(),
+            language: Some("en".into()),
+            status: "original".into(),
+            speaker: Some("A".into()),
+            is_break: 0,
+        },
+        NewToken {
+            session_id,
+            ts_ms: 110,
+            text: "hai".into(),
+            language: Some("vi".into()),
+            status: "translation".into(),
+            speaker: Some("A".into()),
+            is_break: 0,
+        },
+        NewToken {
+            session_id,
+            ts_ms: 120,
+            text: "three".into(),
+            language: Some("en".into()),
+            status: "original".into(),
+            speaker: Some("A".into()),
+            is_break: 0,
+        },
+    ];
+    Tokens::insert_many(s.pool(), &batch).await.unwrap();
+
+    let rows = Tokens::list_by_session(s.pool(), session_id).await.unwrap();
+    assert_eq!(rows.len(), 3, "every row of the batch must land");
+    assert_eq!(
+        rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
+        vec!["one", "hai", "three"]
+    );
+    // FTS triggers fire inside the transaction too.
+    let hits = Tokens::search(s.pool(), "three", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+
+    // Empty batch is a no-op, not an error.
+    Tokens::insert_many(s.pool(), &[]).await.unwrap();
+    let rows = Tokens::list_by_session(s.pool(), session_id).await.unwrap();
+    assert_eq!(rows.len(), 3);
+}
+
+#[tokio::test]
 async fn break_rows_round_trip_in_order() {
     let s = open_store().await;
     let session_id = Sessions::create(
