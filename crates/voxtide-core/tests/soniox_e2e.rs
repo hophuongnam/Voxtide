@@ -4,9 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use voxtide_core::translation::soniox::SonioxBYOK;
-use voxtide_core::translation::{
-    Mode, SessionConfig, TranslationEvent, TranslationProvider,
-};
+use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvider};
 
 async fn spawn_replay_server(replay_path: &'static str) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

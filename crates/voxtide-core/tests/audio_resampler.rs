@@ -81,7 +81,10 @@ fn small_callbacks_are_not_discarded() {
         total_out += r.process(&frame).unwrap().len();
     }
     // 1s @ 44.1k -> 16k should yield ~16000 samples; allow one chunk (480 in / ~174 out) of slack.
-    assert!((15_500..=16_100).contains(&total_out), "got {total_out}, expected ~16000");
+    assert!(
+        (15_500..=16_100).contains(&total_out),
+        "got {total_out}, expected ~16000"
+    );
 }
 
 #[test]
@@ -98,5 +101,8 @@ fn non_multiple_chunks_preserve_total_sample_count() {
         total_out += r.process(&frame).unwrap().len();
     }
     // 300*512 = 153600 frames @48k = 3.2s -> 51200 samples @16k, minus at most one 480-frame carry.
-    assert!((51_000..=51_400).contains(&total_out), "got {total_out}, expected ~51200");
+    assert!(
+        (51_000..=51_400).contains(&total_out),
+        "got {total_out}, expected ~51200"
+    );
 }

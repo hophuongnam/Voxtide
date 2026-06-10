@@ -104,6 +104,7 @@ mod sckit {
         tx: mpsc::Sender<AudioFrame>,
         resampler: Arc<Mutex<Resampler>>,
         chunker: Arc<Mutex<Chunker>>,
+        warned_channels: std::sync::atomic::AtomicBool,
     }
 
     impl SCStreamOutputTrait for OutputHandler {
@@ -130,7 +131,9 @@ mod sckit {
             // Collect each buffer independently, then interleave before handing
             // off to the source_channels:2 resampler.
             let mut channels: Vec<Vec<f32>> = Vec::with_capacity(2);
+            let mut channel_counts: Vec<u32> = Vec::with_capacity(2);
             for buf in audio_buf_list.buffers() {
+                let n_ch = buf.number_channels;
                 let bytes = buf.data();
                 // Each sample is 4 bytes (f32, host native byte order).
                 let samples: Vec<f32> = bytes
@@ -138,12 +141,30 @@ mod sckit {
                     .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
                     .collect();
                 channels.push(samples);
+                channel_counts.push(n_ch);
             }
 
             let f32s = match channels.len() {
                 0 => return,
-                1 => channels[0].iter().flat_map(|s| [*s, *s]).collect(),
-                _ => crate::audio::planar_to_interleaved(&channels),
+                1 => {
+                    if channel_counts[0] >= 2 {
+                        // Already interleaved stereo (or more) in one buffer — use directly.
+                        channels.remove(0)
+                    } else {
+                        // Mono — duplicate to stereo.
+                        channels[0].iter().flat_map(|s| [*s, *s]).collect()
+                    }
+                }
+                2 => crate::audio::planar_to_interleaved(&channels),
+                n => {
+                    if !self
+                        .warned_channels
+                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        tracing::warn!(n, "sckit: unexpected buffer count; interleaving anyway");
+                    }
+                    crate::audio::planar_to_interleaved(&channels)
+                }
             };
 
             if f32s.is_empty() {
@@ -228,6 +249,7 @@ mod sckit {
                     tx,
                     resampler: Arc::new(Mutex::new(resampler)),
                     chunker: Arc::new(Mutex::new(Chunker::new())),
+                    warned_channels: std::sync::atomic::AtomicBool::new(false),
                 };
 
                 let mut stream = SCStream::new(&filter, &cfg);
