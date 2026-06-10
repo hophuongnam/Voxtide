@@ -33,17 +33,26 @@ pub struct StartError {
 impl StartError {
     /// Classify a typed core error, given the source the user requested.
     ///
-    /// - any `Audio` error mentioning "not found" → `device-missing` (the
-    ///   selected mic/loopback device vanished, e.g. unplugged) — distinct from
-    ///   a permission denial.
+    /// - any `Audio` error mentioning "not found" or "no default input device"
+    ///   → `device-missing` (selected mic/loopback vanished, or machine has no
+    ///   mic at all) — distinct from a permission denial.
     /// - other `Audio` errors → a permission problem, scoped to the requested
     ///   source: `mic-permission` for the microphone, `capture-permission` for
     ///   system-audio loopback.
     /// - anything else (Soniox auth/handshake, persistence, session) → `other`.
+    ///
+    /// IMPORTANT: any new `Error::Audio` message that means "device absent" MUST
+    /// contain either "not found" or "no default input device" — these substrings
+    /// are load-bearing: the frontend uses `device-missing` to show the plain
+    /// error strip (not the permission banner).
     fn classify(err: &CoreError, mode: Mode) -> Self {
         let message = err.to_string();
         let kind = match err {
-            CoreError::Audio(detail) if detail.contains("not found") => "device-missing",
+            CoreError::Audio(detail)
+                if detail.contains("not found") || detail.contains("no default input device") =>
+            {
+                "device-missing"
+            }
             CoreError::Audio(_) => match mode {
                 Mode::Conversation => "mic-permission",
                 Mode::Meeting => "capture-permission",

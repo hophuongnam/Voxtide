@@ -282,7 +282,13 @@
     }
   }
 
-  async function onStop()       { await stopSession(); }
+  async function onStop() {
+    try {
+      await stopSession();
+    } catch (e) {
+      appError = String(e instanceof Error ? e.message : e);
+    }
+  }
   async function onModeChange(m: Mode) {
     if (m === mode) return;
     mode = m;
@@ -353,8 +359,8 @@
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
   {#if appError}
     <div data-testid="app-error" class="px-4 py-2.5 flex items-center gap-3"
-         style:background="color-mix(in oklab, var(--vt-danger) 12%, transparent)"
-         style:border-bottom="0.5px solid color-mix(in oklab, var(--vt-danger) 45%, transparent)">
+         style:background="var(--vt-danger-tint)"
+         style:border-bottom="0.5px solid var(--vt-danger-border)">
       <span class="block w-2 h-2 rounded-full shrink-0" style:background="var(--vt-danger)"></span>
       <div class="flex-1 text-[11.5px] leading-snug" style:color="var(--vt-text)">{appError}</div>
       <button type="button" onclick={() => appError = null} aria-label="Dismiss error"

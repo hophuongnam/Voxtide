@@ -32,7 +32,10 @@ use crate::Result;
 /// `ts_ms`, `median_ms`, …) — matching `src/lib/ipc.ts`'s `CoreEvent` union.
 /// `TranslationStatus` serializes snake_case ("original"/"translation"/"none")
 /// and `Option<char>` as a one-char string, so the JSON is byte-identical to
-/// the hand-written mirror this replaced. Pinned by `serde_shape_*` tests.
+/// the hand-written mirror this replaced. Wire shape is pinned by the
+/// `wire_shape_is_byte_stable` test in `src-tauri/src/events.rs` (consumer
+/// crate); drift is only caught by `cargo test --workspace`, not
+/// `-p voxtide-core`.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum CoreEvent {

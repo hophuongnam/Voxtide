@@ -104,5 +104,38 @@ mod tests {
             .unwrap(),
             json!({ "kind": "error", "message": "Soniox error 401: bad key" })
         );
+
+        // SessionStarted: session_id (i64) + mode (String).
+        assert_eq!(
+            serde_json::to_value(CoreEvent::SessionStarted {
+                session_id: 42,
+                mode: "meeting".into(),
+            })
+            .unwrap(),
+            json!({ "kind": "session-started", "session_id": 42, "mode": "meeting" })
+        );
+
+        // Latency: single u64 field.
+        assert_eq!(
+            serde_json::to_value(CoreEvent::Latency { median_ms: 320 }).unwrap(),
+            json!({ "kind": "latency", "median_ms": 320 })
+        );
+    }
+
+    // Compile-time tripwire: adding a CoreEvent variant must break this match,
+    // forcing the author to pin its wire shape above.
+    #[allow(dead_code)]
+    fn _new_variant_means_new_pin(ev: voxtide_core::session::CoreEvent) {
+        use voxtide_core::session::CoreEvent::*;
+        match ev {
+            SessionStarted { .. } => (),
+            SessionStopped { .. } => (),
+            TranscriptLive { .. } => (),
+            TranscriptFinal { .. } => (),
+            UtteranceBreak => (),
+            ConnectionState { .. } => (),
+            Latency { .. } => (),
+            Error { .. } => (),
+        }
     }
 }

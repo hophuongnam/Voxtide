@@ -271,6 +271,10 @@ describe('MainApp error surfacing', () => {
     // outran auto-cleanup; otherwise a stale instance's source picker satisfies
     // global text queries while THIS instance is still settling.
     cleanup();
+    // Clear stale event listeners from a prior test's pending onMount — without
+    // this, a handler registered by an earlier instance can clobber the Map
+    // entry that the current instance is about to register.
+    listeners.clear();
     // Stores are module singletons — isolate from other tests so the
     // EmptyState (gated on no live transcript) renders deterministically.
     const { transcript, session } = await import('../src/lib/stores.svelte');
