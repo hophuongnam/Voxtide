@@ -8,11 +8,13 @@ mod events;
 mod hotkey;
 mod state;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    tauri::async_runtime::set(rt.handle().clone());
+
     tracing_subscriber::fmt::try_init().ok();
 
-    let app_state = state::init().await.expect("voxtide-core init");
+    let app_state = rt.block_on(state::init()).expect("voxtide-core init");
     let app_state = Mutex::new(Some(app_state));
 
     let app = tauri::Builder::default()
@@ -48,7 +50,7 @@ async fn main() {
             // in `lifecycle::start_session`, which leaked one task per start/stop cycle.
             let mut rx = state.controller.subscribe();
             let app_handle = app.handle().clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 loop {
                     match rx.recv().await {
                         Ok(ev) => crate::events::forward(&app_handle, ev),
