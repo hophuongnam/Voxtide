@@ -63,9 +63,13 @@ impl Resampler {
     }
 
     /// Process interleaved samples in `[-1.0, 1.0]`. Returns mono @ 16 kHz f32.
+    ///
+    /// `mono_buf` is a persistent carry buffer: new samples are appended each call,
+    /// whole rubato chunks are consumed from the front, and any sub-chunk remainder
+    /// is retained for the next call. This ensures no samples are lost regardless
+    /// of device callback size (assumes whole interleaved frames per callback).
     pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>> {
         let ch = self.spec.source_channels as usize;
-        self.mono_buf.clear();
         self.mono_buf.reserve(interleaved.len() / ch);
         for frame in interleaved.chunks_exact(ch) {
             let sum: f32 = frame.iter().sum();
@@ -73,26 +77,28 @@ impl Resampler {
         }
 
         let Some(r) = self.inner.as_mut() else {
-            return Ok(self.mono_buf.clone());
+            // Passthrough: drain everything and return it.
+            return Ok(std::mem::take(&mut self.mono_buf));
         };
         let ratio = SAMPLE_RATE_HZ as f64 / self.spec.source_hz as f64;
         let estimated_out = (self.mono_buf.len() as f64 * ratio).ceil() as usize + 16;
         let mut out = Vec::with_capacity(estimated_out);
-        let mut cursor = 0;
-        while cursor + r.input_frames_next() <= self.mono_buf.len() {
-            let input_chunk = r.input_frames_next();
-            let slice = &self.mono_buf[cursor..cursor + input_chunk];
-            let processed = r
-                .process(&[slice], None)
-                .map_err(|e| Error::Audio(format!("rubato process: {e}")))?;
+        let mut consumed = 0usize;
+        while self.mono_buf.len() - consumed >= r.input_frames_next() {
+            let chunk = r.input_frames_next();
+            let slice = &self.mono_buf[consumed..consumed + chunk];
+            let processed = match r.process(&[slice], None) {
+                Ok(res) => res,
+                Err(e) => {
+                    self.mono_buf.drain(..consumed);
+                    return Err(Error::Audio(format!("rubato process: {e}")));
+                }
+            };
             out.extend_from_slice(&processed[0]);
-            cursor += input_chunk;
+            consumed += chunk;
         }
-        // Tail samples (mono_buf.len() % input_chunk) are discarded.
-        // For 48k→16k this is always 0 (4800 % 480 == 0). For other source
-        // rates a small percentage of samples is lost per call. If non-48k
-        // sources are ever supported with no loss, accumulate the tail
-        // across process() invocations instead.
+        // Retain sub-chunk tail in mono_buf for the next call.
+        self.mono_buf.drain(..consumed);
         Ok(out)
     }
 }

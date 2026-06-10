@@ -65,3 +65,38 @@ fn f32_to_i16_clips() {
     assert_eq!(f32_to_i16(2.0), i16::MAX);
     assert_eq!(f32_to_i16(-2.0), i16::MIN + 1);
 }
+
+#[test]
+fn small_callbacks_are_not_discarded() {
+    // 44.1 kHz mono-equivalent stereo input in 441-frame callbacks (WASAPI 10ms periods).
+    let mut r = Resampler::new(ResamplerSpec {
+        source_hz: 44_100,
+        source_channels: 2,
+    })
+    .unwrap();
+    let mut total_out = 0usize;
+    // 100 callbacks of 441 frames * 2 ch interleaved = 1.0s of audio
+    let frame = vec![0.25f32; 441 * 2];
+    for _ in 0..100 {
+        total_out += r.process(&frame).unwrap().len();
+    }
+    // 1s @ 44.1k -> 16k should yield ~16000 samples; allow one chunk (480 in / ~174 out) of slack.
+    assert!((15_500..=16_100).contains(&total_out), "got {total_out}, expected ~16000");
+}
+
+#[test]
+fn non_multiple_chunks_preserve_total_sample_count() {
+    // 48 kHz stereo in 512-frame callbacks (typical CoreAudio buffer).
+    let mut r = Resampler::new(ResamplerSpec {
+        source_hz: 48_000,
+        source_channels: 2,
+    })
+    .unwrap();
+    let mut total_out = 0usize;
+    let frame = vec![0.5f32; 512 * 2];
+    for _ in 0..300 {
+        total_out += r.process(&frame).unwrap().len();
+    }
+    // 300*512 = 153600 frames @48k = 3.2s -> 51200 samples @16k, minus at most one 480-frame carry.
+    assert!((51_000..=51_400).contains(&total_out), "got {total_out}, expected ~51200");
+}
