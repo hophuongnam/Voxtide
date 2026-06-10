@@ -2,11 +2,32 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use voxtide_core::audio::mock::WavSource;
+use voxtide_core::audio::{AudioSource, AudioStream, SourceKind};
+use voxtide_core::persistence::sessions::Sessions;
 use voxtide_core::persistence::Store;
-use voxtide_core::session::{SessionController, StartArgs};
+use voxtide_core::session::{CoreEvent, SessionController, StartArgs};
 use voxtide_core::translation::mock::MockProvider;
 use voxtide_core::translation::tokens::TranslationStatus;
 use voxtide_core::translation::{Mode, SessionConfig, TranslationEvent};
+use voxtide_core::{Error, Result};
+
+/// Audio source whose `start()` always fails, simulating a denied mic / TCC
+/// screen-recording rejection. Used to prove `start()` performs no irreversible
+/// work (no DB row, no `SessionStarted` broadcast) before the fallible source
+/// init succeeds.
+struct FailingSource;
+
+impl AudioSource for FailingSource {
+    fn start(&self) -> Result<AudioStream> {
+        Err(Error::Audio("simulated source start failure".into()))
+    }
+    fn label(&self) -> &str {
+        "failing"
+    }
+    fn kind(&self) -> SourceKind {
+        SourceKind::Mic
+    }
+}
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -143,5 +164,84 @@ async fn concurrent_starts_exactly_one_ok_one_already_running() {
     );
 
     // Clean up.
+    ctl.stop().await.unwrap();
+}
+
+/// A failed `start()` (source init fails — denied mic, TCC screen-recording
+/// rejection) must leave NO orphan row (`ended_at IS NULL`) and must NOT have
+/// broadcast `SessionStarted`. Otherwise the frontend latches `recording=true`
+/// with no compensating `SessionStopped` (stuck rec dot / timer) and the row
+/// lingers `ended_at IS NULL` until the next launch. The controller must also
+/// remain reusable: a subsequent start with a working source succeeds.
+#[tokio::test]
+async fn failed_start_leaves_no_orphan_row_and_no_started_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    // Start with a source whose start() fails: must return Err.
+    let res = ctl
+        .start(StartArgs {
+            cfg: make_cfg(),
+            source: Box::new(FailingSource),
+            provider: make_provider(),
+            device_label: None,
+        })
+        .await;
+    assert!(res.is_err(), "start with a failing source must return Err");
+
+    // No event may have been broadcast — in particular no SessionStarted.
+    match events.try_recv() {
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
+        other => panic!("expected no broadcast event after failed start, got: {other:?}"),
+    }
+
+    // No orphan row (ended_at IS NULL) may exist. SELECT COUNT(*) WHERE
+    // ended_at IS NULL == 0, expressed through the public API.
+    let orphans = Sessions::list(ctl.store().pool(), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.ended_at.is_none())
+        .count();
+    assert_eq!(
+        orphans, 0,
+        "failed start must leave no ended_at IS NULL row"
+    );
+
+    // The controller must still be usable: a subsequent start with a working
+    // source succeeds (the slot was released back to Idle).
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: make_cfg(),
+            source: Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap()),
+            provider: make_provider(),
+            device_label: None,
+        })
+        .await
+        .expect("controller must be reusable after a failed start");
+
+    // Drain until the working session stops, then confirm exactly one finalized
+    // row and zero orphans overall.
+    while let Ok(Ok(ev)) =
+        tokio::time::timeout(std::time::Duration::from_secs(3), events.recv()).await
+    {
+        if matches!(ev, CoreEvent::SessionStopped { .. }) {
+            break;
+        }
+    }
+    let rows = Sessions::list(ctl.store().pool(), 100).await.unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "only the successful session row should exist"
+    );
+    assert_eq!(rows[0].id, session_id);
+    assert!(
+        rows[0].ended_at.is_some(),
+        "the successful session must be finalized"
+    );
+
     ctl.stop().await.unwrap();
 }

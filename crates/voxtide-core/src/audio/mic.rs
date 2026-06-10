@@ -255,11 +255,20 @@ impl AudioSource for MicSource {
             })
             .map_err(|e| Error::Audio(format!("mic thread spawn: {e}")))?;
 
-        // Wait for the spawned thread to confirm init succeeded or failed.
-        match init_rx.recv() {
+        // Wait for the spawned thread to confirm init succeeded or failed, but never block
+        // start() indefinitely: a wedged init (TCC dialog, HAL wedge) would otherwise park the
+        // calling tokio worker forever and leave the controller's slot stuck Pending, which
+        // stop() cannot clear. On timeout, signal the capture thread to halt by dropping the stop
+        // sender (it wakes the thread's `block_on(stop_rx)` once it reaches that point so it does
+        // not linger holding the device) and surface a timeout error.
+        match init_rx.recv_timeout(std::time::Duration::from_secs(10)) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
-            Err(_) => {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                drop(stop_tx);
+                return Err(Error::Audio("mic audio init timed out".into()));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(Error::Audio(
                     "mic thread terminated before signalling init".into(),
                 ))

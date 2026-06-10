@@ -287,11 +287,20 @@ mod sckit {
             })
             .map_err(|e| Error::Audio(format!("sckit thread spawn: {e}")))?;
 
-        // Propagate any init error to the caller.
-        match init_rx.recv() {
+        // Propagate any init error to the caller, but never block start() indefinitely: a wedged
+        // init (TCC screen-recording dialog, SCKit handshake stall) would otherwise park the
+        // calling tokio worker forever and leave the controller's slot stuck Pending, which stop()
+        // cannot clear. On timeout, signal the capture thread to halt by dropping the stop sender
+        // (it wakes the thread's `block_on(stop_rx)` once it reaches that point so it does not
+        // linger holding the capture) and surface a timeout error.
+        match init_rx.recv_timeout(std::time::Duration::from_secs(10)) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
-            Err(_) => {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                drop(stop_tx);
+                return Err(Error::Audio("sckit audio init timed out".into()));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(Error::Audio(
                     "sckit thread terminated before signalling init".into(),
                 ))

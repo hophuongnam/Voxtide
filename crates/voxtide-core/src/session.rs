@@ -169,20 +169,62 @@ impl SessionController {
             Mode::Meeting => "meeting",
             Mode::Conversation => "conversation",
         };
+        // Capture the fields needed for the row before `provider.open` consumes `args.cfg`.
+        let lang_a = args.cfg.language_a.clone();
+        let lang_b = args.cfg.language_b.clone();
+        let device_label = args.device_label.clone();
 
-        // Persist the session row before kicking off the live machinery; this guarantees we have a
-        // stable id to attach tokens to even if the provider fails on the very first event.
-        let session_id = Sessions::create(
+        // Perform every fallible setup step BEFORE creating the DB row or broadcasting
+        // `SessionStarted`. If any of these fail, the controller is left exactly as it was
+        // (the StartGuard resets the slot to Idle on drop): no orphan `ended_at IS NULL` row,
+        // and no latched `recording=true` on the frontend. Ordering: open provider → start
+        // source → create row → broadcast → spawn worker.
+
+        // Open the provider on the caller's task so that authentication / handshake errors surface
+        // synchronously to `start()` rather than vanishing inside the spawned worker.
+        let mut provider = args.provider;
+        provider.open(args.cfg).await?;
+
+        // Start the audio source. On failure, close the provider best-effort (it was just opened)
+        // and propagate the error. Nothing irreversible has happened yet.
+        let stream = match args.source.start() {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = provider.close().await;
+                return Err(e);
+            }
+        };
+        let mut audio_rx = stream.rx;
+        let stop_audio = stream.stop;
+
+        // Persist the session row only once the live machinery is confirmed up. This guarantees we
+        // have a stable id to attach tokens to. If row creation fails, tear down everything we
+        // started (drop the stream to stop the source, close the provider) and propagate — leaving
+        // no half-started session behind.
+        let session_id = match Sessions::create(
             self.store.pool(),
             NewSession {
                 started_at,
                 mode: mode_str.into(),
-                lang_a: args.cfg.language_a.clone(),
-                lang_b: args.cfg.language_b.clone(),
-                device_label: args.device_label.clone(),
+                lang_a,
+                lang_b,
+                device_label,
             },
         )
-        .await?;
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                // Dropping the stream's `stop` sender signals the source thread/task to halt.
+                drop(stop_audio);
+                drop(audio_rx);
+                let _ = provider.close().await;
+                return Err(e);
+            }
+        };
+        // Nothing fallible remains after the row exists; the SessionStarted broadcast and worker
+        // spawn below cannot fail, so the frontend's latched `recording=true` is always backed by
+        // a real, finalizable session.
         let _ = self.tx.send(CoreEvent::SessionStarted {
             session_id,
             mode: mode_str.into(),
@@ -192,14 +234,6 @@ impl SessionController {
         let tx = self.tx.clone();
         let running = Arc::clone(&self.running);
 
-        // Open the provider on the caller's task so that authentication / handshake errors surface
-        // synchronously to `start()` rather than vanishing inside the spawned worker.
-        let mut provider = args.provider;
-        provider.open(args.cfg).await?;
-
-        let stream = args.source.start()?;
-        let mut audio_rx = stream.rx;
-        let stop_audio = stream.stop;
         let (stop_worker_tx, mut stop_worker_rx) = tokio::sync::oneshot::channel::<()>();
 
         let join = tokio::spawn(async move {
@@ -338,9 +372,13 @@ impl SessionController {
 
             // Reset the slot to Idle so callers (e.g. active_session_id) see the correct state
             // after a natural stop. Explicit stop() already resets to Idle before joining, so we
-            // only update here when the slot is still Running (i.e. the natural-stop path).
+            // only update here when the slot still holds OUR session. The identity check is
+            // critical: a worker that outlived stop()'s 5 s join timeout (e.g. parked in
+            // provider.send_audio during a network blackhole) must NOT stomp a *newer* session's
+            // slot — doing so would drop the new session's RunningSession, firing its stop_worker
+            // oneshot and killing session B seconds after it started.
             let mut slot = running.lock();
-            if matches!(&*slot, RunState::Running(_)) {
+            if matches!(&*slot, RunState::Running(r) if r.session_id == session_id) {
                 *slot = RunState::Idle;
             }
         });
