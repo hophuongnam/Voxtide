@@ -126,17 +126,25 @@ mod sckit {
                 }
             };
 
-            // SCKit delivers interleaved float32 PCM.  Collect all channel
-            // buffers into a flat f32 slice and hand off to the resampler.
-            let mut f32s: Vec<f32> = Vec::new();
+            // SCKit delivers planar (non-interleaved) f32: one buffer per channel.
+            // Collect each buffer independently, then interleave before handing
+            // off to the source_channels:2 resampler.
+            let mut channels: Vec<Vec<f32>> = Vec::with_capacity(2);
             for buf in audio_buf_list.buffers() {
                 let bytes = buf.data();
                 // Each sample is 4 bytes (f32, host native byte order).
-                let samples = bytes
+                let samples: Vec<f32> = bytes
                     .chunks_exact(4)
-                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]));
-                f32s.extend(samples);
+                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+                channels.push(samples);
             }
+
+            let f32s = match channels.len() {
+                0 => return,
+                1 => channels[0].iter().flat_map(|s| [*s, *s]).collect(),
+                _ => crate::audio::planar_to_interleaved(&channels),
+            };
 
             if f32s.is_empty() {
                 return;

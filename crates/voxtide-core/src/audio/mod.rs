@@ -77,3 +77,20 @@ pub trait AudioSource: Send + Sync {
 pub fn channel() -> (mpsc::Sender<AudioFrame>, mpsc::Receiver<AudioFrame>) {
     mpsc::channel(64)
 }
+
+/// Interleave per-channel (planar) buffers: `[[L...],[R...]] -> [L0,R0,L1,R1,...]`.
+/// A single buffer is returned as-is (already interleaved or mono).
+/// Uneven channel lengths truncate to the shortest.
+pub fn planar_to_interleaved(channels: &[Vec<f32>]) -> Vec<f32> {
+    if channels.len() == 1 {
+        return channels[0].clone();
+    }
+    let frames = channels.iter().map(|c| c.len()).min().unwrap_or(0);
+    let mut out = Vec::with_capacity(frames * channels.len());
+    for i in 0..frames {
+        for ch in channels {
+            out.push(ch[i]);
+        }
+    }
+    out
+}
