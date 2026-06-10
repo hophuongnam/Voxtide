@@ -24,7 +24,8 @@
       <div class="text-[12px] font-semibold" style:color="var(--vt-text)">{titles[kind]}</div>
       <div class="text-[11.5px] mt-0.5" style:color="var(--vt-muted)">{bodies[kind]}</div>
     </div>
-    <button type="button" onclick={() => openUrl(macUrls[kind])}
+    <button type="button"
+            onclick={() => openUrl(macUrls[kind]).catch((e) => console.error('open settings failed', e))}
             class="px-3 py-1.5 rounded text-[11.5px] cursor-pointer font-semibold"
             style:background="var(--vt-warn)" style:color="var(--vt-bg)" style:border="none">
       Open System Settings
