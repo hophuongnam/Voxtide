@@ -96,6 +96,20 @@ async fn session_persists_finals_and_emits_events() {
     assert_eq!(tokens.len(), 2);
     assert_eq!(tokens[0].text, "Hello");
     assert_eq!(tokens[1].text, "Xin chào");
+    // Timestamps are persisted AS RECEIVED — the worker no longer subtracts the
+    // session start. The scripted finals carry ts_ms 100 and 110, so those exact
+    // values must land in the DB. (Before the fix the worker stored
+    // `ts_ms - started_at`, i.e. ~100 minus a wall-clock epoch — a large
+    // negative number — which is the bug that made reopened sessions render at
+    // the 1970 epoch.)
+    assert_eq!(
+        tokens[0].ts_ms, 100,
+        "ts must be persisted unmodified (no subtraction)"
+    );
+    assert_eq!(
+        tokens[1].ts_ms, 110,
+        "ts must be persisted unmodified (no subtraction)"
+    );
 }
 
 #[tokio::test]
@@ -388,8 +402,11 @@ async fn audio_source_ending_triggers_eos_and_finalizes_session() {
     // Script WITHOUT a terminal Stopped. `Stopped` is queued in flush_on_eos, so
     // the provider releases it ONLY when eos() is called. Per MockProvider's
     // contract, the retained flush sender keeps next_event() parked forever until
-    // eos() fires — so if the worker never calls eos() on audio-drain, this test
-    // hangs (caught by the 10s timeout below) instead of finalizing.
+    // eos() fires — so if the worker never calls eos() on audio-drain, no
+    // SessionStopped is ever broadcast. The INNER 5s recv timeout below then
+    // expires first, dropping out of the receive loop with got_stopped == false,
+    // and the `assert!(got_stopped)` fails — that is the RED signal. The outer
+    // 10s only guards a hang in start()/DB ops, which have no inner timeout.
     let script = vec![
         TranslationEvent::Connected,
         TranslationEvent::Final {
@@ -406,8 +423,9 @@ async fn audio_source_ending_triggers_eos_and_finalizes_session() {
     let ctl = SessionController::new(store);
     let mut events = ctl.subscribe();
 
-    // The whole exercise must complete within 10s; a hang here is the RED signal
-    // that audio-drain never triggers eos.
+    // Outer guard for start()/DB hangs only (those have no inner timeout). The
+    // missed-eos RED path is caught by the inner 5s recv timeout → got_stopped
+    // assert failure, not by this 10s budget.
     tokio::time::timeout(Duration::from_secs(10), async {
         let session_id = ctl
             .start(StartArgs {
@@ -449,9 +467,7 @@ async fn audio_source_ending_triggers_eos_and_finalizes_session() {
         assert!(row.duration_ms.is_some());
     })
     .await
-    .expect(
-        "session must finalize within 10s after the audio source ends (no eos-on-drain = hang)",
-    );
+    .expect("start()/DB must not hang for 10s; the missed-eos case fails via the inner assert");
 }
 
 #[tokio::test]

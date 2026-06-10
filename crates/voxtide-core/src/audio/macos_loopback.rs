@@ -277,6 +277,11 @@ mod sckit {
                 // Signal the parent that startup succeeded.
                 let _ = init_tx.send(Ok(()));
 
+                // T8 residual: SCKit exposes no stream-error callback, so a
+                // mid-session capture stall leaves the frame channel open (soft
+                // zombie) until explicit stop — stop_rx below is the only exit.
+                // Runtime/block_on intentionally kept (single-channel wait; no
+                // err_rx to multiplex).
                 // Block until the stop signal or sender drop.
                 let _ = rt.block_on(stop_rx);
 

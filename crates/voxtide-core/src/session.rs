@@ -324,7 +324,7 @@ impl SessionController {
                     ev = provider.next_event() => {
                         let Some(ev) = ev else { break; };
                         if handle_event(
-                            &store, &tx, session_id, started,
+                            &store, &tx, session_id,
                             &mut speakers, &mut latency, ev,
                         )
                         .await
@@ -362,17 +362,9 @@ impl SessionController {
                 // remaining wait if the provider hasn't finished by then.
                 let _ = tokio::time::timeout(Duration::from_secs(3), async {
                     while let Some(ev) = provider.next_event().await {
-                        if handle_event(
-                            &store,
-                            &tx,
-                            session_id,
-                            started,
-                            &mut speakers,
-                            &mut latency,
-                            ev,
-                        )
-                        .await
-                        .is_break()
+                        if handle_event(&store, &tx, session_id, &mut speakers, &mut latency, ev)
+                            .await
+                            .is_break()
                         {
                             break;
                         }
@@ -463,7 +455,6 @@ async fn handle_event(
     store: &Store,
     tx: &broadcast::Sender<CoreEvent>,
     session_id: i64,
-    started: i64,
     speakers: &mut SpeakerMap,
     latency: &mut LatencyTracker,
     ev: TranslationEvent,
@@ -515,7 +506,15 @@ async fn handle_event(
                 store.pool(),
                 NewToken {
                     session_id,
-                    ts_ms: ts_ms - started,
+                    // Persist the timestamp AS RECEIVED. The live TranscriptFinal
+                    // event carries wall-clock epoch ms, and the frontend renders
+                    // both the live row and a reopened session's rows through the
+                    // same `new Date(ts_ms)` path — so persisting epoch (not a
+                    // session-relative offset) is what keeps reopened sessions
+                    // from rendering at the 1970 epoch. Cross-session FTS ordering
+                    // (`ORDER BY ts_ms DESC`) is also only globally correct on an
+                    // absolute clock.
+                    ts_ms,
                     text: text.clone(),
                     language: language.clone(),
                     status: match status {
@@ -529,10 +528,11 @@ async fn handle_event(
             {
                 tracing::warn!(?e, "tokens insert");
             }
-            // Soniox emits `ts_ms` as a stream-relative offset, so the
-            // wall-clock subtraction here is only meaningful for the live
-            // path. We saturate at zero to avoid wrap-around noise on the
-            // mock provider, which can report timestamps in the past.
+            // `ts_ms` is epoch ms, but the provider stamps it at WS receive —
+            // so this measures in-process handling lag (~0), not true audio
+            // latency; the audio-anchored latency rework replaces it. `.max(0)`
+            // guards the u64 cast against future-stamped events (the mock
+            // provider scripts arbitrary timestamps).
             latency.observe((now_ms() - ts_ms).max(0) as u64);
             if let Some(m) = latency.median_ms() {
                 let _ = tx.send(CoreEvent::Latency { median_ms: m });
