@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/svelte';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { render, fireEvent, waitFor, within, cleanup } from '@testing-library/svelte';
 
 const sampleSessions = [
   { id: 1, started_at: Date.now() - 60_000, ended_at: Date.now() - 30_000,
@@ -11,7 +11,10 @@ const sampleSessions = [
 ];
 
 const { invokeMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn(async (cmd: string, _args?: any) => {
+  // Return type is widened to `unknown` so per-test mockImplementations can
+  // return any command's payload shape (device lists, structured errors, …)
+  // without fighting the union inferred from this default body.
+  invokeMock: vi.fn(async (cmd: string, _args?: any): Promise<unknown> => {
     if (cmd === 'get_config') return {
       language_a: 'en', language_b: 'vi',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
@@ -27,9 +30,39 @@ const { invokeMock } = vi.hoisted(() => ({
   }),
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+
+// Capture event listeners by name so tests can dispatch a backend event
+// (e.g. a `voxtide://event` core event) into the live handler. Existing tests
+// that never emit are unaffected — `listen` still resolves to an unlisten fn.
+const { listeners, emitEvent } = vi.hoisted(() => {
+  const listeners = new Map<string, (e: { payload: unknown }) => void>();
+  return {
+    listeners,
+    emitEvent(name: string, payload: unknown) {
+      listeners.get(name)?.({ payload });
+    },
+  };
+});
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, handler: (e: { payload: unknown }) => void) => {
+    listeners.set(name, handler);
+    return () => listeners.delete(name);
+  },
+}));
 
 import MainApp from '../src/routes/MainApp.svelte';
+
+// Wait until the toolbar's source picker (scoped to this instance) shows the
+// given selected device label — i.e. MainApp's onMount has populated the device
+// list AND the reactive $effect has assigned `selectedSource`. This is the exact
+// precondition for onStart to proceed past its guard; gating on it removes the
+// race between the async onMount and a click, which otherwise no-ops silently.
+async function waitForStartReady(container: HTMLElement, sourceLabel: string) {
+  await waitFor(() => {
+    const labels = [...container.querySelectorAll('span')].map(s => s.textContent?.trim());
+    expect(labels).toContain(sourceLabel);
+  }, { timeout: 2000 });
+}
 
 describe('MainApp delete flow', () => {
   it('hover trash → confirm modal → invokes delete_session and refreshes list', async () => {
@@ -229,6 +262,117 @@ describe('MainApp reading config', () => {
       expect(root.style.getPropertyValue('--vt-transcript-size')).toBe('19px');
       expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('MainApp error surfacing', () => {
+  beforeEach(async () => {
+    // Tear down any MainApp left mounted by a prior test whose async onMount
+    // outran auto-cleanup; otherwise a stale instance's source picker satisfies
+    // global text queries while THIS instance is still settling.
+    cleanup();
+    // Stores are module singletons — isolate from other tests so the
+    // EmptyState (gated on no live transcript) renders deterministically.
+    const { transcript, session } = await import('../src/lib/stores.svelte');
+    transcript.reset();
+    session.stop();
+  });
+
+  const baseConfig = {
+    language_a: 'en', language_b: 'vi',
+    hotkey: 'Ctrl+Shift+V', theme: 'system',
+    default_meeting_source: null, default_mic: null,
+    mode: 'meeting', font_size: 'm', show_pinyin: false,
+  };
+  const loopback = [{ id: 'sys', label: 'System Audio', default: true }];
+
+  it('renders a provider error core event in the error strip', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return baseConfig;
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics') return [];
+      if (cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+    const { container } = render(MainApp);
+
+    // Wait until the core-event listener is registered, then dispatch an error.
+    await waitFor(() => {
+      expect(listeners.has('voxtide://event')).toBe(true);
+    });
+    emitEvent('voxtide://event', { kind: 'error', message: 'Soniox error 401: bad key' });
+
+    const strip = await waitFor(() => {
+      const el = container.querySelector('[data-testid="app-error"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(strip.textContent).toMatch(/Soniox error 401: bad key/i);
+  });
+
+  it('start_session device-missing rejection shows the strip, not the permission banner', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return baseConfig;
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics') return [];
+      if (cmd === 'list_loopback_sources') return loopback;
+      if (cmd === 'start_session') {
+        // Tauri rejects with the structured StartError payload.
+        throw { kind: 'device-missing', message: 'mic device not found: USB Mic' };
+      }
+      return null;
+    });
+
+    const { container } = render(MainApp);
+    const scoped = within(container);
+
+    // Wait until this instance's onMount fully completes (refreshSources fetches
+    // mics last) and the source picker shows the selected device — only then is
+    // onStart's `hasApiKey && config && selectedSource` guard satisfied.
+    await waitForStartReady(container, 'System Audio');
+    await fireEvent.click(scoped.getByRole('button', { name: /Start/ }));
+
+    // The error strip appears carrying the raw device-missing message.
+    const strip = await waitFor(() => {
+      const el = container.querySelector('[data-testid="app-error"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(strip.textContent).toMatch(/mic device not found: USB Mic/i);
+    // The permission banner must NOT appear for a device-missing error.
+    expect(container.querySelector('[data-testid="permission-banner"]')).toBeNull();
+  });
+
+  it('start_session mic-permission rejection shows the permission banner (not the strip)', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return { ...baseConfig, mode: 'conversation' };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics') return [{ id: 'builtin', label: 'Built-in Mic', default: true }];
+      if (cmd === 'list_loopback_sources') return [];
+      if (cmd === 'start_session') {
+        throw { kind: 'mic-permission', message: 'audio: cpal build_input_stream: denied' };
+      }
+      return null;
+    });
+
+    const { container } = render(MainApp);
+    const scoped = within(container);
+
+    await waitForStartReady(container, 'Built-in Mic');
+    await fireEvent.click(scoped.getByRole('button', { name: /Start/ }));
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="permission-banner"]')).not.toBeNull();
+    });
+    // The plain error strip must NOT appear — this is a routed permission case.
+    expect(container.querySelector('[data-testid="app-error"]')).toBeNull();
   });
 });
 

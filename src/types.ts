@@ -42,3 +42,11 @@ export interface ConnectionState {
   attempt: number | null;
   retry_in_ms: number | null;
 }
+
+// Structured rejection payload from the `start_session` command. `kind` routes
+// the UI response (permission banner vs. plain error strip); `message` is the
+// raw detail. Mirrors `StartError` in src-tauri/src/commands/lifecycle.rs.
+export type StartError = {
+  kind: 'device-missing' | 'mic-permission' | 'capture-permission' | 'other';
+  message: string;
+};

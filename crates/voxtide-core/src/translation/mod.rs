@@ -51,6 +51,11 @@ pub enum TranslationEvent {
         attempt: u32,
         retry_in_ms: u64,
     },
+    /// A terminal provider failure with a human-readable message (e.g. a Soniox
+    /// server error like a bad API key or exhausted quota). The session worker
+    /// rebroadcasts this as [`crate::session::CoreEvent::Error`]; a `Stopped`
+    /// follows to end the session normally.
+    Error(String),
     Stopped,
 }
 

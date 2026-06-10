@@ -162,6 +162,77 @@ async fn provider_stream_ending_without_stopped_still_finalizes_session() {
 }
 
 #[tokio::test]
+async fn provider_error_is_surfaced_then_session_finalizes() {
+    // The most common BYOK failure: Soniox rejects the API key. The provider
+    // emits `TranslationEvent::Error(msg)` followed by `Stopped`. Subscribers
+    // must receive a `CoreEvent::Error { message }` carrying the detail BEFORE
+    // the terminal `SessionStopped`, and the session row must still finalize.
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+    let provider = Box::new(MockProvider::with_script(vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Error("Soniox error 401: bad key".into()),
+        TranslationEvent::Stopped,
+    ]));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+            },
+            source: wav,
+            provider,
+            device_label: None,
+        })
+        .await
+        .unwrap();
+
+    let mut error_msg: Option<String> = None;
+    let mut got_stopped = false;
+    while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        match ev {
+            CoreEvent::Error { message } => {
+                assert!(
+                    !got_stopped,
+                    "CoreEvent::Error must arrive BEFORE SessionStopped"
+                );
+                error_msg = Some(message);
+            }
+            CoreEvent::SessionStopped { .. } => {
+                got_stopped = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let message = error_msg.expect("a CoreEvent::Error must be broadcast on provider failure");
+    assert!(
+        message.contains("401"),
+        "error message should carry the provider detail, got: {message}"
+    );
+    assert!(got_stopped, "session must still emit SessionStopped");
+
+    // The session row finalizes despite the error (no orphaned ended_at IS NULL row).
+    let row = Sessions::get(ctl.store().pool(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        row.ended_at.is_some(),
+        "session must be finalized after a provider error"
+    );
+}
+
+#[tokio::test]
 async fn active_session_id_tracks_running_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("v.db")).await.unwrap();

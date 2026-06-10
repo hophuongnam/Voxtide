@@ -67,7 +67,8 @@ export type CoreEvent =
       text: string; language: string | null; chip: string | null; ts_ms: number }
   | { kind: 'utterance-break' }
   | { kind: 'connection-state'; state: ConnectionState['state']; attempt: number | null; retry_in_ms: number | null }
-  | { kind: 'latency'; median_ms: number };
+  | { kind: 'latency'; median_ms: number }
+  | { kind: 'error'; message: string };
 
 export function onCoreEvent(handler: (ev: CoreEvent) => void): Promise<UnlistenFn> {
   return listen<CoreEvent>('voxtide://event', (e) => handler(e.payload));

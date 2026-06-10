@@ -18,7 +18,7 @@
 </script>
 
 {#if kind}
-  <div class="px-4 py-3 flex items-center gap-3"
+  <div data-testid="permission-banner" class="px-4 py-3 flex items-center gap-3"
        style:background="var(--vt-warn-tint)" style:border-bottom="0.5px solid var(--vt-warn-border)">
     <div class="flex-1">
       <div class="text-[12px] font-semibold" style:color="var(--vt-text)">{titles[kind]}</div>

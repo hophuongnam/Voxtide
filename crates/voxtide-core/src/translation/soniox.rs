@@ -110,11 +110,15 @@ impl Default for SonioxBYOK {
     }
 }
 
-/// Build a terminal [`TranslationEvent::Stopped`] preceded by an error trace.
-/// Kept as a helper so the background task can fail-fast without code dup.
-fn stopped_with_err(msg: String) -> TranslationEvent {
+/// Surface a terminal failure to the caller: emit [`TranslationEvent::Error`]
+/// carrying the human-readable message, then [`TranslationEvent::Stopped`] to
+/// end the session normally. Also traces the error. Kept as a helper so the
+/// background task can fail-fast without code dup. Best-effort sends — if the
+/// receiver is already gone the task is being torn down anyway.
+async fn fail_with(event_tx: &mpsc::Sender<TranslationEvent>, msg: String) {
     tracing::error!(error = %msg, "SonioxBYOK stopping");
-    TranslationEvent::Stopped
+    let _ = event_tx.send(TranslationEvent::Error(msg)).await;
+    let _ = event_tx.send(TranslationEvent::Stopped).await;
 }
 
 #[async_trait::async_trait]
@@ -135,9 +139,7 @@ impl TranslationProvider for SonioxBYOK {
                 let req = match endpoint.as_str().into_client_request() {
                     Ok(r) => r,
                     Err(e) => {
-                        let _ = event_tx
-                            .send(stopped_with_err(format!("invalid endpoint: {e}")))
-                            .await;
+                        fail_with(&event_tx, format!("invalid endpoint: {e}")).await;
                         return;
                     }
                 };
@@ -146,9 +148,7 @@ impl TranslationProvider for SonioxBYOK {
                     Ok((ws, _)) => ws,
                     Err(e) => {
                         if attempt > MAX_ATTEMPTS {
-                            let _ = event_tx
-                                .send(stopped_with_err(format!("connect: {e}")))
-                                .await;
+                            fail_with(&event_tx, format!("connect: {e}")).await;
                             return;
                         }
                         let wait = next_backoff_ms(attempt);
@@ -285,9 +285,11 @@ impl TranslationProvider for SonioxBYOK {
                                                 break 'inner;
                                             }
                                             Ok(ServerMessage::Error { code, message }) => {
-                                                let _ = event_tx
-                                                    .send(stopped_with_err(format!("Soniox error {code}: {message}")))
-                                                    .await;
+                                                fail_with(
+                                                    &event_tx,
+                                                    format!("Soniox error {code}: {message}"),
+                                                )
+                                                .await;
                                                 return;
                                             }
                                             Err(e) => {

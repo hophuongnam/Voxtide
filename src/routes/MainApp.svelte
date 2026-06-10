@@ -26,7 +26,7 @@
   import { LANG_NAMES } from '../lib/languages';
   import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
-  import type { AppConfig, FontSize, Mode, SessionRow } from '../types';
+  import type { AppConfig, FontSize, Mode, SessionRow, StartError } from '../types';
 
   let mode = $state<Mode>('meeting');
   let sessions = $state<SessionRow[]>([]);
@@ -38,6 +38,10 @@
   let mainWidth = $state(920);
   let selectedSource = $state<DeviceEntry | null>(null);
   let permissionKind = $state<'mic' | 'audio-capture' | null>(null);
+  // Plain, dismissible error strip for failures that aren't a permission prompt:
+  // a structured start error (device-missing/other), a non-structured rejection,
+  // or a provider `error` core event (e.g. a rejected Soniox API key).
+  let appError = $state<string | null>(null);
 
   // Past-session viewer. null = follow live capture; otherwise show pastOriginal/pastTranslation.
   let viewingId = $state<number | null>(null);
@@ -186,6 +190,7 @@
       case 'connection-state':
         session.setConnection(ev.state, ev.attempt, ev.retry_in_ms); break;
       case 'latency': session.setLatency(ev.median_ms); break;
+      case 'error': appError = ev.message; break;
     }
   }
 
@@ -239,9 +244,18 @@
     searchHits = sessions.filter(s => matchIds.has(s.id));
   }
 
+  // Type guard for the structured rejection payload `start_session` returns.
+  function isStartError(e: unknown): e is StartError {
+    return typeof e === 'object' && e !== null
+      && typeof (e as { kind?: unknown }).kind === 'string';
+  }
+
   async function onStart() {
     if (!config.hasApiKey || !config.config || !selectedSource) return;
     transcript.reset();
+    // Clear both surfaces up front so a retry never stacks a stale banner/strip.
+    appError = null;
+    permissionKind = null;
     try {
       await startSession({
         mode,
@@ -250,12 +264,21 @@
         device_id: selectedSource.id,
         api_key_account: config.apiKeyAccount,
       });
-      permissionKind = null;
     } catch (e) {
-      const msg = String(e).toLowerCase();
-      if (msg.includes('mic') || msg.includes('microphone')) permissionKind = 'mic';
-      else if (msg.includes('audio capture') || msg.includes('sckit')) permissionKind = 'audio-capture';
-      else throw e;
+      // Route the typed StartError; never rethrow (a rethrow = unhandled
+      // rejection with no UI). A permission denial opens the banner; everything
+      // else (missing device, or any other failure) shows the plain strip. The
+      // two surfaces are mutually exclusive — only one is set per failure.
+      if (isStartError(e)) {
+        switch (e.kind) {
+          case 'mic-permission':     permissionKind = 'mic'; break;
+          case 'capture-permission': permissionKind = 'audio-capture'; break;
+          default:                   appError = e.message; // device-missing | other
+        }
+      } else {
+        // Non-structured rejection (plain string / Error): surface verbatim.
+        appError = String(e instanceof Error ? e.message : e);
+      }
     }
   }
 
@@ -328,6 +351,17 @@
     onsource={onSourceChange} />
 
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
+  {#if appError}
+    <div data-testid="app-error" class="px-4 py-2.5 flex items-center gap-3"
+         style:background="color-mix(in oklab, var(--vt-danger) 12%, transparent)"
+         style:border-bottom="0.5px solid color-mix(in oklab, var(--vt-danger) 45%, transparent)">
+      <span class="block w-2 h-2 rounded-full shrink-0" style:background="var(--vt-danger)"></span>
+      <div class="flex-1 text-[11.5px] leading-snug" style:color="var(--vt-text)">{appError}</div>
+      <button type="button" onclick={() => appError = null} aria-label="Dismiss error"
+              class="bg-transparent border-0 cursor-pointer px-2 py-1 text-[13px] leading-none"
+              style:color="var(--vt-muted)">✕</button>
+    </div>
+  {/if}
   <UpdateBanner
     version={pendingUpdate?.version ?? null}
     busy={updateInstalling}

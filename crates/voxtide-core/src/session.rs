@@ -23,7 +23,18 @@ use crate::translation::{Mode, SessionConfig, TranslationEvent, TranslationProvi
 use crate::Result;
 
 /// Events broadcast by the [`SessionController`] for UI / orchestration consumers.
-#[derive(Debug, Clone)]
+///
+/// `CoreEvent` is also the on-the-wire payload the Tauri layer emits verbatim
+/// (`voxtide://event`). The serde attributes here ARE the frontend contract:
+/// `tag = "kind"` adds a `"kind"` discriminator, `rename_all = "kebab-case"`
+/// kebab-cases ONLY the variant names (the `kind` value, e.g.
+/// `"transcript-live"`), while field names stay snake_case (`session_id`,
+/// `ts_ms`, `median_ms`, …) — matching `src/lib/ipc.ts`'s `CoreEvent` union.
+/// `TranslationStatus` serializes snake_case ("original"/"translation"/"none")
+/// and `Option<char>` as a one-char string, so the JSON is byte-identical to
+/// the hand-written mirror this replaced. Pinned by `serde_shape_*` tests.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum CoreEvent {
     SessionStarted {
         session_id: i64,
@@ -55,6 +66,12 @@ pub enum CoreEvent {
     },
     Latency {
         median_ms: u64,
+    },
+    /// A provider-side failure (e.g. Soniox auth/quota error). Surfaced to the
+    /// UI as a dismissible error strip. Emitted just before the terminal
+    /// `SessionStopped` so the user learns *why* recording ended.
+    Error {
+        message: String,
     },
 }
 
@@ -343,6 +360,12 @@ impl SessionController {
                             }
                             TranslationEvent::UtteranceBreak => {
                                 let _ = tx.send(CoreEvent::UtteranceBreak);
+                            }
+                            // A provider failure: surface the message to the UI, then keep
+                            // looping. The provider sends `Stopped` immediately after, which
+                            // breaks and finalizes the session below exactly like a clean stop.
+                            TranslationEvent::Error(message) => {
+                                let _ = tx.send(CoreEvent::Error { message });
                             }
                             TranslationEvent::Stopped => break,
                         }
