@@ -67,5 +67,14 @@ pub trait TranslationProvider: Send {
     /// frame without re-copying (the call site already builds an owned `Vec`).
     async fn send_audio(&mut self, pcm: Vec<u8>) -> Result<()>;
     async fn next_event(&mut self) -> Option<TranslationEvent>;
+    /// Initiate end-of-stream WITHOUT tearing the provider down: signal the
+    /// remote that no more audio is coming, but keep [`next_event`] live so the
+    /// flushed trailing finals (the last words spoken before stop) still drain
+    /// to the caller. The session worker calls this on explicit stop, drains the
+    /// remaining events, and only then calls [`close`].
+    ///
+    /// Default impl is a no-op for providers that flush nothing. Must be
+    /// idempotent: calling it more than once (or after `close`) is harmless.
+    async fn eos(&mut self) {}
     async fn close(&mut self) -> Result<()>;
 }

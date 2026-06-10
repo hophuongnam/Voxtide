@@ -233,6 +233,140 @@ async fn provider_error_is_surfaced_then_session_finalizes() {
 }
 
 #[tokio::test]
+async fn explicit_stop_drains_eos_flush_so_trailing_finals_persist() {
+    // EOS-TAIL-DROP regression. On explicit stop() the worker breaks via the
+    // biased stop arm; before the fix it called provider.close() WITHOUT
+    // draining the provider's EOS flush, so Soniox's trailing finals (the last
+    // words spoken before stop) never reached the DB or the UI. The worker must
+    // now call eos(), drain the flushed finals (persist + broadcast), and only
+    // then close — so the tail survives. The two tail finals must also be
+    // broadcast BEFORE the terminal SessionStopped.
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    // Long-running source so the worker is genuinely parked on next_event() at
+    // the moment we call stop(), exercising the real stop→drain ordering.
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), true).unwrap());
+
+    // Script: a live + a final delivered up front. flush_on_eos: two trailing
+    // finals plus the terminal Stopped, released ONLY when eos() is called.
+    let script = vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Live {
+            text: "Goodbye wor".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+        },
+        TranslationEvent::Final {
+            text: "script final".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 100,
+        },
+    ];
+    let flush_on_eos = vec![
+        TranslationEvent::Final {
+            text: "tail one".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 200,
+        },
+        TranslationEvent::Final {
+            text: "tail two".into(),
+            language: Some("vi".into()),
+            status: TranslationStatus::Translation,
+            speaker: Some("1".into()),
+            ts_ms: 210,
+        },
+        TranslationEvent::Stopped,
+    ];
+    let provider = Box::new(MockProvider::with_script_and_flush(script, flush_on_eos));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    let session_id = ctl
+        .start(StartArgs {
+            cfg: SessionConfig {
+                api_key: "test".into(),
+                mode: Mode::Meeting,
+                language_a: "en".into(),
+                language_b: "vi".into(),
+            },
+            source: wav,
+            provider,
+            device_label: None,
+        })
+        .await
+        .unwrap();
+
+    // Wait until the up-front script final has been broadcast (and thus
+    // persisted) so we know stop() can't race ahead of the pre-stop events.
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .expect("script final should arrive")
+            .expect("broadcast channel open");
+        if matches!(ev, CoreEvent::TranscriptFinal { ref text, .. } if text == "script final") {
+            break;
+        }
+    }
+
+    // Explicit stop: must trigger the EOS drain.
+    ctl.stop().await.unwrap();
+
+    // Record the order of trailing finals vs. SessionStopped.
+    let mut tail_finals_before_stop: Vec<String> = Vec::new();
+    let mut got_stopped = false;
+    while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await {
+        match ev {
+            CoreEvent::TranscriptFinal { text, .. } => {
+                assert!(
+                    !got_stopped,
+                    "trailing final '{text}' arrived AFTER SessionStopped"
+                );
+                tail_finals_before_stop.push(text);
+            }
+            CoreEvent::SessionStopped { .. } => {
+                got_stopped = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    assert!(got_stopped, "session must emit SessionStopped");
+    assert_eq!(
+        tail_finals_before_stop,
+        vec!["tail one".to_string(), "tail two".to_string()],
+        "both EOS-flushed finals must broadcast (in order) before SessionStopped"
+    );
+
+    // Persistence: the script final AND both tail finals must be in the DB.
+    let tokens = Tokens::list_by_session(ctl.store().pool(), session_id)
+        .await
+        .unwrap();
+    let texts: Vec<&str> = tokens.iter().map(|t| t.text.as_str()).collect();
+    assert!(
+        texts.contains(&"tail one") && texts.contains(&"tail two"),
+        "EOS-flushed trailing finals must be persisted, got: {texts:?}"
+    );
+    assert!(
+        texts.contains(&"script final"),
+        "pre-stop final must still be persisted, got: {texts:?}"
+    );
+
+    let row = Sessions::get(ctl.store().pool(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.ended_at.is_some(), "session must be finalized");
+}
+
+#[tokio::test]
 async fn active_session_id_tracks_running_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("v.db")).await.unwrap();

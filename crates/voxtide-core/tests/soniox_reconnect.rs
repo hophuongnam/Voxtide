@@ -62,7 +62,10 @@ async fn spawn_accept_then_close_server() -> String {
 #[tokio::test]
 async fn accept_then_close_terminates() {
     let url = spawn_accept_then_close_server().await;
-    let mut provider = SonioxBYOK::with_endpoint(&url);
+    // Inject a near-instant backoff (1 ms per rung) so this self-termination
+    // test exercises the full MAX_ATTEMPTS ladder WITHOUT sleeping the real
+    // ~13.75s schedule. The reconnect logic is identical; only the wait shrinks.
+    let mut provider = SonioxBYOK::with_endpoint_and_backoff(&url, |_| 1);
     provider
         .open(SessionConfig {
             api_key: "test".into(),
@@ -74,9 +77,10 @@ async fn accept_then_close_terminates() {
         .unwrap();
 
     // The whole assertion phase is bounded: if the provider loops forever the
-    // timeout fails the test rather than hanging the suite. 6 bounded backoffs
-    // (250+500+1000+2000+5000+5000 ≈ 13.75s) + localhost round-trips fit easily.
-    tokio::time::timeout(Duration::from_secs(30), async {
+    // timeout fails the test rather than hanging the suite. With the injected
+    // 1 ms backoff the 6 reconnect rungs + localhost round-trips finish well
+    // under a second, so a 10s ceiling is generous slack.
+    tokio::time::timeout(Duration::from_secs(10), async {
         let mut reconnect_attempts: Vec<u32> = Vec::new();
         let mut saw_error: Option<String> = None;
         let mut saw_stopped = false;
@@ -144,5 +148,5 @@ async fn accept_then_close_terminates() {
         );
     })
     .await
-    .expect("provider must self-terminate within 30s, not loop forever");
+    .expect("provider must self-terminate within 10s, not loop forever");
 }

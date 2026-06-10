@@ -73,6 +73,9 @@ enum Outbound {
 /// [`MAX_ATTEMPTS`] using [`next_backoff_ms`].
 pub struct SonioxBYOK {
     endpoint: String,
+    /// Reconnect backoff schedule, injectable so tests can collapse the
+    /// ~13.8s real-time ladder to near-zero. Defaults to [`next_backoff_ms`].
+    backoff_ms: fn(u32) -> u64,
     audio_tx: Option<mpsc::Sender<Outbound>>,
     event_rx: Option<mpsc::Receiver<TranslationEvent>>,
     task: Option<tokio::task::JoinHandle<()>>,
@@ -86,8 +89,16 @@ impl SonioxBYOK {
 
     /// Construct a provider with a custom endpoint (for tests or proxies).
     pub fn with_endpoint(endpoint: &str) -> Self {
+        Self::with_endpoint_and_backoff(endpoint, next_backoff_ms)
+    }
+
+    /// Construct a provider with a custom endpoint AND a custom backoff
+    /// schedule. Tests pass e.g. `|_| 1` to make reconnect attempts effectively
+    /// instant so a self-termination assertion doesn't sleep the real ladder.
+    pub fn with_endpoint_and_backoff(endpoint: &str, backoff_ms: fn(u32) -> u64) -> Self {
         Self {
             endpoint: endpoint.to_string(),
+            backoff_ms,
             audio_tx: None,
             event_rx: None,
             task: None,
@@ -130,9 +141,15 @@ impl TranslationProvider for SonioxBYOK {
         self.event_rx = Some(event_rx);
 
         let endpoint = self.endpoint.clone();
+        let backoff_ms = self.backoff_ms;
 
         let task = tokio::spawn(async move {
             let mut attempt = 0u32;
+            // Reconnect-loop invariant: every back-edge re-checks
+            // `attempt > MAX_ATTEMPTS` before sleeping/retrying, so an endpoint
+            // that never makes progress always terminates. `attempt` resets to 0
+            // only on real-token progress (`got_tokens`); terminal exits happen
+            // only via `fail_with(...) + return` or a `Stopped`-emitting `return`.
             'outer: loop {
                 attempt += 1;
 
@@ -151,7 +168,7 @@ impl TranslationProvider for SonioxBYOK {
                             fail_with(&event_tx, format!("connect: {e}")).await;
                             return;
                         }
-                        let wait = next_backoff_ms(attempt);
+                        let wait = backoff_ms(attempt);
                         let _ = event_tx
                             .send(TranslationEvent::Reconnecting {
                                 attempt,
@@ -182,7 +199,7 @@ impl TranslationProvider for SonioxBYOK {
                         .await;
                         return;
                     }
-                    let wait = next_backoff_ms(attempt);
+                    let wait = backoff_ms(attempt);
                     let _ = event_tx
                         .send(TranslationEvent::Reconnecting {
                             attempt,
@@ -364,9 +381,14 @@ impl TranslationProvider for SonioxBYOK {
                     return;
                 }
                 // `next_backoff_ms` is 1-indexed; `attempt` is the count of the
-                // attempt we're about to retry from (1 after a progress reset).
-                let next = if got_tokens { 1 } else { attempt };
-                let wait = next_backoff_ms(next);
+                // attempt we're about to retry from. `attempt` is 0 only right
+                // after the progress reset above, so `max(1)` re-floors it to the
+                // first rung — equivalent to the old `if got_tokens { 1 } else
+                // { attempt }`. Note this deliberately re-emits `Reconnecting
+                // { attempt: 1 }` after a productive connection dies: a fresh
+                // reconnect ladder is the intended UX, not a bug.
+                let next = attempt.max(1);
+                let wait = backoff_ms(next);
                 let _ = event_tx
                     .send(TranslationEvent::Reconnecting {
                         attempt: next,
@@ -396,10 +418,22 @@ impl TranslationProvider for SonioxBYOK {
         rx.recv().await
     }
 
+    async fn eos(&mut self) {
+        // Initiate the EOS handshake without tearing anything down. Dropping the
+        // audio sender makes the background task observe `audio_rx.recv() -> None`
+        // and forward an EOS sentinel to the server; the server then flushes its
+        // trailing finals. We deliberately KEEP `event_rx` so those finals (the
+        // last words spoken before stop) still reach the caller, who drains them
+        // before calling `close()`. Idempotent: a second call (or one after
+        // `close()`) just re-takes an already-None sender — a no-op.
+        self.audio_tx = None;
+    }
+
     async fn close(&mut self) -> Result<()> {
         // Dropping the sender closes the channel. The background task detects
         // `audio_rx.recv() -> None` and treats it as client EOS: it forwards an
         // EOS sentinel to the server and exits cleanly without needing abort().
+        // Harmless if `eos()` already dropped it — this just re-takes None.
         self.audio_tx = None;
 
         let result = if let Some(mut task) = self.task.take() {
@@ -412,6 +446,10 @@ impl TranslationProvider for SonioxBYOK {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(join_err)) => Err(Error::Soniox(format!("join: {join_err}"))),
                 Err(_) => {
+                    // Fire-and-forget: abort() only requests cancellation. The
+                    // teardown (socket + channel drop) completes on the cancelled
+                    // task's next poll at an await point; we deliberately do NOT
+                    // wait for it here — close() must not re-block past its budget.
                     task.abort();
                     Err(Error::Soniox("close timed out".into()))
                 }

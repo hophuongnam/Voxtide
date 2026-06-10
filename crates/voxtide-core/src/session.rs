@@ -7,8 +7,9 @@
 //! avoids the latency penalty of a shared `Mutex<Provider>` (where `next_event().await` would
 //! starve `send_audio`).
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::broadcast;
 
@@ -264,6 +265,9 @@ impl SessionController {
             // remaining tokens and the terminal Stopped event. `audio_done` disables the audio arm
             // via a `tokio::select!` precondition so we don't busy-spin on a closed channel.
             let mut audio_done = false;
+            // Set when the loop exits via the biased explicit-stop arm; gates the
+            // post-loop EOS-drain (other exit paths already drained the provider).
+            let mut stop_requested = false;
 
             loop {
                 tokio::select! {
@@ -273,7 +277,11 @@ impl SessionController {
                     biased;
                     _ = &mut stop_worker_rx => {
                         // Finalization is centralized after the loop so every
-                        // exit path persists the session exactly once.
+                        // exit path persists the session exactly once. But first
+                        // drain the EOS flush below: breaking here straight to
+                        // close() would drop the provider's trailing finals (the
+                        // last words spoken before stop), which the drain rescues.
+                        stop_requested = true;
                         break;
                     }
                     // Forward audio chunks to the provider. Disabled once the source is drained.
@@ -297,80 +305,51 @@ impl SessionController {
                     // Receive translation events. Terminates the loop on None (closed) or Stopped.
                     ev = provider.next_event() => {
                         let Some(ev) = ev else { break; };
-                        match ev {
-                            TranslationEvent::Connected => {
-                                let _ = tx.send(CoreEvent::ConnectionState {
-                                    state: "active",
-                                    attempt: None,
-                                    retry_in_ms: None,
-                                });
-                            }
-                            TranslationEvent::Reconnecting { attempt, retry_in_ms } => {
-                                let _ = tx.send(CoreEvent::ConnectionState {
-                                    state: "reconnecting",
-                                    attempt: Some(attempt),
-                                    retry_in_ms: Some(retry_in_ms),
-                                });
-                            }
-                            TranslationEvent::Live { text, language, status, speaker } => {
-                                let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
-                                let _ = tx.send(CoreEvent::TranscriptLive {
-                                    status,
-                                    text,
-                                    language,
-                                    chip,
-                                });
-                            }
-                            TranslationEvent::Final { text, language, status, speaker, ts_ms } => {
-                                let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
-                                let speaker_letter = chip.map(|c| c.to_string());
-                                // Persist before broadcasting so a downstream listener that
-                                // immediately queries the store sees the row.
-                                if let Err(e) = Tokens::insert(
-                                    store.pool(),
-                                    NewToken {
-                                        session_id,
-                                        ts_ms: ts_ms - started,
-                                        text: text.clone(),
-                                        language: language.clone(),
-                                        status: match status {
-                                            TranslationStatus::Translation => "translation".into(),
-                                            _ => "original".into(),
-                                        },
-                                        speaker: speaker_letter,
-                                    },
-                                )
-                                .await
-                                {
-                                    tracing::warn!(?e, "tokens insert");
-                                }
-                                // Soniox emits `ts_ms` as a stream-relative offset, so the
-                                // wall-clock subtraction here is only meaningful for the live
-                                // path. We saturate at zero to avoid wrap-around noise on the
-                                // mock provider, which can report timestamps in the past.
-                                latency.observe((now_ms() - ts_ms).max(0) as u64);
-                                if let Some(m) = latency.median_ms() {
-                                    let _ = tx.send(CoreEvent::Latency { median_ms: m });
-                                }
-                                let _ = tx.send(CoreEvent::TranscriptFinal {
-                                    status,
-                                    text,
-                                    language,
-                                    chip,
-                                    ts_ms,
-                                });
-                            }
-                            TranslationEvent::UtteranceBreak => {
-                                let _ = tx.send(CoreEvent::UtteranceBreak);
-                            }
-                            // A provider failure: surface the message to the UI, then keep
-                            // looping. The provider sends `Stopped` immediately after, which
-                            // breaks and finalizes the session below exactly like a clean stop.
-                            TranslationEvent::Error(message) => {
-                                let _ = tx.send(CoreEvent::Error { message });
-                            }
-                            TranslationEvent::Stopped => break,
+                        if handle_event(
+                            &store, &tx, session_id, started,
+                            &mut speakers, &mut latency, ev,
+                        )
+                        .await
+                        .is_break()
+                        {
+                            break;
                         }
+                    }
+                }
+            }
+
+            // EOS-drain (only on explicit stop). The main loop broke via the
+            // biased stop arm WITHOUT consuming the provider's buffered events.
+            // `eos()` tells the provider no more audio is coming but keeps the
+            // event stream live, so Soniox's flushed trailing finals still
+            // arrive; we drain and handle them (persist + broadcast) exactly as
+            // the main loop would. Each `next_event()` is bounded by a 3s
+            // timeout, and we break on Stopped / channel-close / timeout, so the
+            // drain is guaranteed to terminate even if the provider hangs.
+            // (Other exit paths — provider `Stopped`/`Error`, stream close — were
+            // already drained by the main loop, so we skip the drain for them.)
+            if stop_requested {
+                provider.eos().await;
+                // `while let Ok(Some(..))` terminates the drain on a timeout
+                // (`Err`) or channel close (`Ok(None)`): the provider task ended
+                // or the flush stalled past the 3s budget. We additionally break
+                // from inside on `Stopped` (handle_event returns Break).
+                while let Ok(Some(ev)) =
+                    tokio::time::timeout(Duration::from_secs(3), provider.next_event()).await
+                {
+                    if handle_event(
+                        &store,
+                        &tx,
+                        session_id,
+                        started,
+                        &mut speakers,
+                        &mut latency,
+                        ev,
+                    )
+                    .await
+                    .is_break()
+                    {
+                        break;
                     }
                 }
             }
@@ -442,6 +421,117 @@ impl SessionController {
         }
         Ok(())
     }
+}
+
+/// Handle one [`TranslationEvent`], shared verbatim by the worker's main select
+/// arm and its post-stop drain so the two can never diverge (persist + broadcast
+/// logic lives in exactly one place). Persists finals to the store, observes
+/// latency, and rebroadcasts every variant as the matching [`CoreEvent`].
+///
+/// Returns [`ControlFlow::Break`] only for [`TranslationEvent::Stopped`] — the
+/// caller breaks its loop. Every other variant returns [`ControlFlow::Continue`]
+/// (including `Error`, which is forwarded as [`CoreEvent::Error`] but does NOT
+/// stop the loop: the provider sends `Stopped` right after).
+async fn handle_event(
+    store: &Store,
+    tx: &broadcast::Sender<CoreEvent>,
+    session_id: i64,
+    started: i64,
+    speakers: &mut SpeakerMap,
+    latency: &mut LatencyTracker,
+    ev: TranslationEvent,
+) -> ControlFlow<()> {
+    match ev {
+        TranslationEvent::Connected => {
+            let _ = tx.send(CoreEvent::ConnectionState {
+                state: "active",
+                attempt: None,
+                retry_in_ms: None,
+            });
+        }
+        TranslationEvent::Reconnecting {
+            attempt,
+            retry_in_ms,
+        } => {
+            let _ = tx.send(CoreEvent::ConnectionState {
+                state: "reconnecting",
+                attempt: Some(attempt),
+                retry_in_ms: Some(retry_in_ms),
+            });
+        }
+        TranslationEvent::Live {
+            text,
+            language,
+            status,
+            speaker,
+        } => {
+            let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
+            let _ = tx.send(CoreEvent::TranscriptLive {
+                status,
+                text,
+                language,
+                chip,
+            });
+        }
+        TranslationEvent::Final {
+            text,
+            language,
+            status,
+            speaker,
+            ts_ms,
+        } => {
+            let chip = speaker.as_deref().map(|s| speakers.chip_for(s));
+            let speaker_letter = chip.map(|c| c.to_string());
+            // Persist before broadcasting so a downstream listener that
+            // immediately queries the store sees the row.
+            if let Err(e) = Tokens::insert(
+                store.pool(),
+                NewToken {
+                    session_id,
+                    ts_ms: ts_ms - started,
+                    text: text.clone(),
+                    language: language.clone(),
+                    status: match status {
+                        TranslationStatus::Translation => "translation".into(),
+                        _ => "original".into(),
+                    },
+                    speaker: speaker_letter,
+                },
+            )
+            .await
+            {
+                tracing::warn!(?e, "tokens insert");
+            }
+            // Soniox emits `ts_ms` as a stream-relative offset, so the
+            // wall-clock subtraction here is only meaningful for the live
+            // path. We saturate at zero to avoid wrap-around noise on the
+            // mock provider, which can report timestamps in the past.
+            latency.observe((now_ms() - ts_ms).max(0) as u64);
+            if let Some(m) = latency.median_ms() {
+                let _ = tx.send(CoreEvent::Latency { median_ms: m });
+            }
+            let _ = tx.send(CoreEvent::TranscriptFinal {
+                status,
+                text,
+                language,
+                chip,
+                ts_ms,
+            });
+        }
+        TranslationEvent::UtteranceBreak => {
+            let _ = tx.send(CoreEvent::UtteranceBreak);
+        }
+        // A provider failure: surface the message to the UI, then keep
+        // looping. The provider sends `Stopped` immediately after, which
+        // breaks and finalizes the session below exactly like a clean stop.
+        // Forwarded identically from the drain so an error racing an explicit
+        // stop is never swallowed.
+        TranslationEvent::Error(message) => {
+            let _ = tx.send(CoreEvent::Error { message });
+        }
+        TranslationEvent::Stopped => return ControlFlow::Break(()),
+    }
+    ControlFlow::Continue(())
 }
 
 fn now_ms() -> i64 {
