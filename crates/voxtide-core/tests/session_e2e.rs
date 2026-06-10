@@ -367,6 +367,94 @@ async fn explicit_stop_drains_eos_flush_so_trailing_finals_persist() {
 }
 
 #[tokio::test]
+async fn audio_source_ending_triggers_eos_and_finalizes_session() {
+    // MIC-DEVICE-LOSS regression. When the audio source ends on its own — a WAV
+    // hitting EOF, or (in production) a mic/loopback device being unplugged so
+    // the capture thread drops its stream and the frame channel closes — the
+    // worker's audio arm yields `None` (`audio_done` flips true). Before the fix
+    // the worker simply stopped polling that arm and idled forever waiting on a
+    // `Stopped` the provider would never send on its own, leaving a zombie
+    // session: UI stuck REC, row stuck `ended_at IS NULL`, no recovery short of
+    // a manual stop. The worker must now call `provider.eos()` when the source
+    // drains so the provider flushes and emits `Stopped`, the loop breaks, and
+    // the session finalizes — all WITHOUT any explicit `stop()`.
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+
+    // Non-realtime WAV: drains quickly, closing its frame channel at EOF — the
+    // exact channel-close shape a real device-loss produces.
+    let wav = Box::new(WavSource::open(&fixture("hello-en-16k-mono.wav"), false).unwrap());
+
+    // Script WITHOUT a terminal Stopped. `Stopped` is queued in flush_on_eos, so
+    // the provider releases it ONLY when eos() is called. Per MockProvider's
+    // contract, the retained flush sender keeps next_event() parked forever until
+    // eos() fires — so if the worker never calls eos() on audio-drain, this test
+    // hangs (caught by the 10s timeout below) instead of finalizing.
+    let script = vec![
+        TranslationEvent::Connected,
+        TranslationEvent::Final {
+            text: "Hello".into(),
+            language: Some("en".into()),
+            status: TranslationStatus::Original,
+            speaker: Some("1".into()),
+            ts_ms: 100,
+        },
+    ];
+    let flush_on_eos = vec![TranslationEvent::Stopped];
+    let provider = Box::new(MockProvider::with_script_and_flush(script, flush_on_eos));
+
+    let ctl = SessionController::new(store);
+    let mut events = ctl.subscribe();
+
+    // The whole exercise must complete within 10s; a hang here is the RED signal
+    // that audio-drain never triggers eos.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let session_id = ctl
+            .start(StartArgs {
+                cfg: SessionConfig {
+                    api_key: "test".into(),
+                    mode: Mode::Meeting,
+                    language_a: "en".into(),
+                    language_b: "vi".into(),
+                },
+                source: wav,
+                provider,
+                device_label: None,
+            })
+            .await
+            .unwrap();
+
+        // We deliberately do NOT call ctl.stop(). The session must terminate on
+        // its own once the source drains.
+        let mut got_stopped = false;
+        while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
+            if matches!(ev, CoreEvent::SessionStopped { .. }) {
+                got_stopped = true;
+                break;
+            }
+        }
+        assert!(
+            got_stopped,
+            "SessionStopped must fire when the audio source ends, without an explicit stop()"
+        );
+
+        let row = Sessions::get(ctl.store().pool(), session_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            row.ended_at.is_some(),
+            "session must be finalized (ended_at set) when the audio source ends"
+        );
+        assert!(row.duration_ms.is_some());
+    })
+    .await
+    .expect(
+        "session must finalize within 10s after the audio source ends (no eos-on-drain = hang)",
+    );
+}
+
+#[tokio::test]
 async fn active_session_id_tracks_running_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("v.db")).await.unwrap();

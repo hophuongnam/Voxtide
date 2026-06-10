@@ -298,7 +298,25 @@ impl SessionController {
                                 }
                             }
                             None => {
+                                // The audio source ended on its own: the WAV hit
+                                // EOF, or a live mic/loopback device was lost and
+                                // the capture thread dropped its stream, closing
+                                // the frame channel. Disable this arm AND tell the
+                                // provider no more audio is coming so it flushes
+                                // any pending finals and emits `Stopped` — which
+                                // `handle_event` turns into a loop break and the
+                                // post-loop finalize. Without this the worker would
+                                // idle forever waiting on a `Stopped` the provider
+                                // never sends unprompted: a zombie session (UI
+                                // stuck REC, row stuck `ended_at IS NULL`). This is
+                                // a clean end-of-stream, not an error, so we emit NO
+                                // `CoreEvent::Error` (the mock WAV source drains the
+                                // same way). `eos()` is idempotent and runs at most
+                                // once here: setting `audio_done` first disables the
+                                // `if !audio_done` arm so the `None` branch can never
+                                // re-fire.
                                 audio_done = true;
+                                provider.eos().await;
                             }
                         }
                     }

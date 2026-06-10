@@ -103,7 +103,7 @@ fn push_f32_samples(
 impl AudioSource for MicSource {
     fn start(&self) -> Result<AudioStream> {
         let (tx, rx) = channel();
-        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
 
         // Synchronous init-error channel: the spawned thread sends Ok(()) once
         // the stream is playing, or Err(...) if setup fails.
@@ -155,6 +155,14 @@ impl AudioSource for MicSource {
                 };
                 let chunker = Chunker::new();
 
+                // Stream-error signal: cpal invokes the error callback when the
+                // device is lost (unplugged, default-device switch, HAL reset).
+                // The callback fires `err_tx`; the capture thread's wait loop
+                // below wakes on it and drops the stream, which closes the frame
+                // channel so the session worker can finalize instead of idling
+                // forever on a now-dead device.
+                let (err_tx, err_rx) = std::sync::mpsc::channel::<()>();
+
                 // Macro-like helper to reduce repetition per sample format arm.
                 // `resampler` and `chunker` are moved into the closure; the macro
                 // expands exactly once per match arm, so each arm gets sole ownership.
@@ -163,6 +171,7 @@ impl AudioSource for MicSource {
                         let tx_cb = tx.clone();
                         let mut r_cb = resampler;
                         let mut c_cb = chunker;
+                        let err_tx_cb = err_tx.clone();
                         device
                             .build_input_stream(
                                 &stream_config,
@@ -170,7 +179,10 @@ impl AudioSource for MicSource {
                                     let f32s: Vec<f32> = data.iter().map($to_f32).collect();
                                     push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
                                 },
-                                |e| tracing::error!(?e, "cpal stream error"),
+                                move |e| {
+                                    tracing::error!(?e, "cpal stream error");
+                                    let _ = err_tx_cb.send(());
+                                },
                                 None,
                             )
                             .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
@@ -228,29 +240,39 @@ impl AudioSource for MicSource {
                     return;
                 }
 
-                // Build the stop-wait runtime BEFORE signalling init success so
-                // that a build failure is propagated to the caller rather than
-                // silently panicking after the caller already received Ok(()).
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let _ =
-                            init_tx.send(Err(Error::Audio(format!("mic stop-wait runtime: {e}"))));
-                        return;
-                    }
-                };
-
                 // Signal the parent thread that init succeeded.
                 let _ = init_tx.send(Ok(()));
 
-                // Block this thread until the stop signal arrives or the sender
-                // is dropped (caller dropped the AudioStream).
-                let _ = rt.block_on(stop_rx);
+                // Wait for an explicit stop OR a stream error, whichever comes
+                // first. `stop_rx` is a tokio oneshot but we only ever poll it
+                // synchronously here (no runtime needed): a short `err_rx` timeout
+                // bounds how long a `try_recv` of the stop signal is delayed.
+                //
+                // - err_rx Ok      → the device was lost (callback fired). Break,
+                //   drop the stream, close the frame channel; the worker finalizes.
+                // - err_rx Disconnected → every error-tx clone dropped (cannot
+                //   happen while the stream lives, since its callback holds one):
+                //   treat as terminal and break.
+                // - stop_rx Ok/Closed → explicit stop, or the stop sender was
+                //   dropped (T4's init-timeout path drops it). Break.
+                // - stop_rx Empty   → neither yet; keep waiting.
+                loop {
+                    match err_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            match stop_rx.try_recv() {
+                                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
+                                _ => break,
+                            }
+                        }
+                    }
+                }
 
-                // Dropping `stream` here stops the capture.
+                // Dropping `stream` here stops the capture and drops the data
+                // callback's `tx` clone. The original `tx` in this thread scope
+                // drops when the closure returns just below, so once both are gone
+                // the frame channel closes and the session worker's audio arm sees
+                // `None`.
                 drop(stream);
             })
             .map_err(|e| Error::Audio(format!("mic thread spawn: {e}")))?;
@@ -259,8 +281,9 @@ impl AudioSource for MicSource {
         // start() indefinitely: a wedged init (TCC dialog, HAL wedge) would otherwise park the
         // calling tokio worker forever and leave the controller's slot stuck Pending, which
         // stop() cannot clear. On timeout, signal the capture thread to halt by dropping the stop
-        // sender (it wakes the thread's `block_on(stop_rx)` once it reaches that point so it does
-        // not linger holding the device) and surface a timeout error.
+        // sender (its wait loop's `stop_rx.try_recv()` then returns `Closed` and breaks once it
+        // reaches that point, so it does not linger holding the device) and surface a timeout
+        // error.
         match init_rx.recv_timeout(std::time::Duration::from_secs(10)) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
