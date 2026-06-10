@@ -323,35 +323,44 @@ impl SessionController {
             // `eos()` tells the provider no more audio is coming but keeps the
             // event stream live, so Soniox's flushed trailing finals still
             // arrive; we drain and handle them (persist + broadcast) exactly as
-            // the main loop would. Each `next_event()` is bounded by a 3s
-            // timeout, and we break on Stopped / channel-close / timeout, so the
-            // drain is guaranteed to terminate even if the provider hangs.
+            // the main loop would.
+            //
+            // A SINGLE 3s deadline covers the whole drain (not per-event).
+            // Previously each `next_event()` carried its own 3s timeout, so a
+            // reconnect ladder during the drain could reset the window on every
+            // event — worst case ~6.75s of reconnects + 3s close ≈ 10s stop
+            // latency. With one overall budget the drain is guaranteed to finish
+            // within 3s regardless of reconnect churn. Trade-off: a reconnect
+            // mid-drain that would otherwise recover tail words from buffered
+            // audio is now cut off if the budget is exhausted first, but the
+            // happy-path flush (no reconnect) is typically <1s and unaffected.
             // (Other exit paths — provider `Stopped`/`Error`, stream close — were
             // already drained by the main loop, so we skip the drain for them.)
             if stop_requested {
                 provider.eos().await;
-                // `while let Ok(Some(..))` terminates the drain on a timeout
-                // (`Err`) or channel close (`Ok(None)`): the provider task ended
-                // or the flush stalled past the 3s budget. We additionally break
-                // from inside on `Stopped` (handle_event returns Break).
-                while let Ok(Some(ev)) =
-                    tokio::time::timeout(Duration::from_secs(3), provider.next_event()).await
-                {
-                    if handle_event(
-                        &store,
-                        &tx,
-                        session_id,
-                        started,
-                        &mut speakers,
-                        &mut latency,
-                        ev,
-                    )
-                    .await
-                    .is_break()
-                    {
-                        break;
+                // The outer timeout enforces a single 3s deadline for the entire
+                // drain. Inside we loop until the channel closes (`None`) or
+                // `handle_event` signals Stopped (Break). The timeout cancels any
+                // remaining wait if the provider hasn't finished by then.
+                let _ = tokio::time::timeout(Duration::from_secs(3), async {
+                    while let Some(ev) = provider.next_event().await {
+                        if handle_event(
+                            &store,
+                            &tx,
+                            session_id,
+                            started,
+                            &mut speakers,
+                            &mut latency,
+                            ev,
+                        )
+                        .await
+                        .is_break()
+                        {
+                            break;
+                        }
                     }
-                }
+                })
+                .await;
             }
 
             // Best-effort cleanup. If the provider already closed itself (Stopped path) this is a

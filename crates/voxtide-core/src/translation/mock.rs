@@ -27,6 +27,21 @@ impl MockProvider {
     /// `flush_on_eos` events that are withheld until `eos()` is called. Use this
     /// to exercise the worker's EOS-drain path (trailing finals on explicit
     /// stop).
+    ///
+    /// **Interleaving caveat:** flush/script interleaving is unspecified if the
+    /// script is still being produced (i.e. the spawned sender task has not yet
+    /// finished) when `eos()` fires. The flush events are injected immediately on
+    /// `eos()` via a retained sender clone, so they can arrive interleaved with
+    /// in-flight script events. Tests that care about ordering should ensure the
+    /// script has drained before calling `eos()` (or rely on the session worker's
+    /// natural sequencing of `eos()` after the stop arm fires).
+    ///
+    /// **Lifetime caveat:** a provider constructed with a non-empty flush queue
+    /// whose session never calls `eos()` will park `next_event()` forever once
+    /// the script drains — the retained `flush_tx` keeps the channel open
+    /// indefinitely. This is intentional for tests that *require* `eos()` to be
+    /// called; do not use `with_script_and_flush` in tests where `eos()` is
+    /// never expected to fire.
     pub fn with_script_and_flush(
         script: Vec<TranslationEvent>,
         flush_on_eos: Vec<TranslationEvent>,
