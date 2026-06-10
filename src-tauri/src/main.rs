@@ -9,7 +9,12 @@ mod hotkey;
 mod state;
 
 fn main() {
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    // Deliberately NOT #[tokio::main]: the ExitRequested handler below calls
+    // tauri::async_runtime::block_on, which panics when invoked from inside a
+    // tokio runtime context ("Cannot start a runtime from within a runtime").
+    // Building the runtime manually and handing Tauri its handle keeps main a
+    // plain thread, so the quit-path block_on (session finalize) is legal.
+    let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
     tauri::async_runtime::set(rt.handle().clone());
 
     tracing_subscriber::fmt::try_init().ok();
@@ -31,15 +36,21 @@ fn main() {
                 .with_denylist(&["overlay"])
                 .build(),
         )
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, _event| {
             // macOS pattern: red-traffic-light closes the window but keeps the app
             // running in the dock; dock-click re-shows it (handled in the run loop).
             // Cmd+Q / "Quit Voxtide" fire ExitRequested, not CloseRequested, so quit
             // still works as expected.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            //
+            // macOS-ONLY: Windows/Linux have no Dock or tray affordance here, so
+            // close-to-hide would strand an invisible process whose global hotkey
+            // can still start recordings (only Task Manager could kill it). On
+            // those platforms the close proceeds → ExitRequested → finalize.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
+                if _window.label() == "main" {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = _window.hide();
                 }
             }
         })
@@ -116,12 +127,13 @@ fn main() {
                 }
             }
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen {
-                has_visible_windows,
-                ..
-            } => {
-                if !has_visible_windows {
-                    if let Some(window) = app_handle.get_webview_window("main") {
+            tauri::RunEvent::Reopen { .. } => {
+                // Deliberately ignore has_visible_windows: a visible OVERLAY
+                // counts as a visible window, which blocked Dock-click from
+                // ever restoring a hidden main window. Judge the main window's
+                // own visibility instead.
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if !window.is_visible().unwrap_or(false) {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
