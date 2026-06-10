@@ -29,7 +29,7 @@ impl TranslationProvider for MockProvider {
         self.rx = Some(rx);
         Ok(())
     }
-    async fn send_audio(&mut self, _pcm: &[u8]) -> Result<()> {
+    async fn send_audio(&mut self, _pcm: Vec<u8>) -> Result<()> {
         Ok(())
     }
     async fn next_event(&mut self) -> Option<TranslationEvent> {

@@ -280,8 +280,7 @@ impl SessionController {
                     maybe_frame = audio_rx.recv(), if !audio_done => {
                         match maybe_frame {
                             Some(frame) => {
-                                let bytes = frame.to_le_bytes();
-                                if let Err(e) = provider.send_audio(&bytes).await {
+                                if let Err(e) = provider.send_audio(frame.to_le_bytes()).await {
                                     tracing::warn!(?e, "provider send_audio");
                                     let _ = tx.send(CoreEvent::ConnectionState {
                                         state: "reconnecting",

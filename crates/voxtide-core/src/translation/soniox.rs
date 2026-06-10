@@ -168,7 +168,20 @@ impl TranslationProvider for SonioxBYOK {
                 let initial = build_initial_config(&cfg).to_string();
                 if let Err(e) = ws_tx.send(Message::Text(initial)).await {
                     tracing::warn!(?e, "send initial config; reconnecting");
-                    attempt = 1;
+                    // A failed config send is NOT progress, so we do NOT reset
+                    // `attempt`. Bound it like any other reconnect cause so an
+                    // endpoint that accepts the handshake then refuses the
+                    // config can't drive an unbounded loop.
+                    if attempt > MAX_ATTEMPTS {
+                        fail_with(
+                            &event_tx,
+                            format!(
+                                "connection failed {attempt} times without progress; giving up"
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
                     let wait = next_backoff_ms(attempt);
                     let _ = event_tx
                         .send(TranslationEvent::Reconnecting {
@@ -180,6 +193,12 @@ impl TranslationProvider for SonioxBYOK {
                     continue 'outer;
                 }
 
+                // Per-connection progress flag. Set true once we process a real
+                // (non-control-marker) token this connection. Only real progress
+                // resets the reconnect budget below; an accept-then-close server
+                // (captive portal, proxy, idle-close, maintenance) never sets it,
+                // so the loop terminates via `MAX_ATTEMPTS`.
+                let mut got_tokens = false;
                 let mut finished = false;
                 let mut client_eos = false;
                 'inner: loop {
@@ -240,6 +259,9 @@ impl TranslationProvider for SonioxBYOK {
                                                         }
                                                         continue;
                                                     }
+                                                    // A real transcript token: this connection made
+                                                    // progress, so the reconnect budget may reset.
+                                                    got_tokens = true;
                                                     if t.is_final {
                                                         let _ = event_tx
                                                             .send(TranslationEvent::Final {
@@ -285,6 +307,9 @@ impl TranslationProvider for SonioxBYOK {
                                                 break 'inner;
                                             }
                                             Ok(ServerMessage::Error { code, message }) => {
+                                                // Best-effort close so the server sees a clean
+                                                // shutdown before we tear the task down.
+                                                let _ = ws_tx.close().await;
                                                 fail_with(
                                                     &event_tx,
                                                     format!("Soniox error {code}: {message}"),
@@ -320,12 +345,31 @@ impl TranslationProvider for SonioxBYOK {
                     return;
                 }
 
-                // Reconnect with fresh attempt counter (1-indexed for the new round).
-                attempt = 1;
-                let wait = next_backoff_ms(attempt);
+                // The connection was established but died. Reset the reconnect
+                // budget ONLY if this connection made real progress (received at
+                // least one transcript token); otherwise the budget keeps
+                // climbing. An endpoint that accepts the handshake then closes
+                // without ever sending tokens (captive portal, proxy, Soniox
+                // idle-close, maintenance) thus exhausts MAX_ATTEMPTS and the
+                // session self-terminates instead of flapping forever.
+                if got_tokens {
+                    attempt = 0;
+                }
+                if attempt > MAX_ATTEMPTS {
+                    fail_with(
+                        &event_tx,
+                        format!("connection failed {attempt} times without progress; giving up"),
+                    )
+                    .await;
+                    return;
+                }
+                // `next_backoff_ms` is 1-indexed; `attempt` is the count of the
+                // attempt we're about to retry from (1 after a progress reset).
+                let next = if got_tokens { 1 } else { attempt };
+                let wait = next_backoff_ms(next);
                 let _ = event_tx
                     .send(TranslationEvent::Reconnecting {
-                        attempt,
+                        attempt: next,
                         retry_in_ms: wait,
                     })
                     .await;
@@ -337,11 +381,12 @@ impl TranslationProvider for SonioxBYOK {
         Ok(())
     }
 
-    async fn send_audio(&mut self, pcm: &[u8]) -> Result<()> {
+    async fn send_audio(&mut self, pcm: Vec<u8>) -> Result<()> {
         let Some(tx) = self.audio_tx.as_ref() else {
             return Err(Error::Soniox("provider not open".into()));
         };
-        tx.send(Outbound::Binary(pcm.to_vec()))
+        // Move the buffer straight into the outbound channel — no extra copy.
+        tx.send(Outbound::Binary(pcm))
             .await
             .map_err(|e| Error::Soniox(format!("audio channel closed: {e}")))
     }
@@ -357,11 +402,19 @@ impl TranslationProvider for SonioxBYOK {
         // EOS sentinel to the server and exits cleanly without needing abort().
         self.audio_tx = None;
 
-        let result = if let Some(task) = self.task.take() {
-            match tokio::time::timeout(Duration::from_secs(3), task).await {
+        let result = if let Some(mut task) = self.task.take() {
+            // `&mut task` is itself a future (JoinHandle: Unpin), so the timeout
+            // borrows the handle rather than consuming it. On Err we still own
+            // `task` and abort it — otherwise the background task keeps running
+            // parked on `ws_rx.next()`, holding the TLS socket + channels for
+            // the rest of the process lifetime (one leaked task per stuck close).
+            match tokio::time::timeout(Duration::from_secs(3), &mut task).await {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(join_err)) => Err(Error::Soniox(format!("join: {join_err}"))),
-                Err(_) => Err(Error::Soniox("close timed out".into())),
+                Err(_) => {
+                    task.abort();
+                    Err(Error::Soniox("close timed out".into()))
+                }
             }
         } else {
             Ok(())

@@ -62,7 +62,10 @@ pub enum TranslationEvent {
 #[async_trait::async_trait]
 pub trait TranslationProvider: Send {
     async fn open(&mut self, cfg: SessionConfig) -> Result<()>;
-    async fn send_audio(&mut self, pcm: &[u8]) -> Result<()>;
+    /// Send one PCM chunk to the provider. Takes ownership of the buffer so the
+    /// implementation can move it straight into its outbound channel / wire
+    /// frame without re-copying (the call site already builds an owned `Vec`).
+    async fn send_audio(&mut self, pcm: Vec<u8>) -> Result<()>;
     async fn next_event(&mut self) -> Option<TranslationEvent>;
     async fn close(&mut self) -> Result<()>;
 }
