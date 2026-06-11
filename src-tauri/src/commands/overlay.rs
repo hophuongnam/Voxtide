@@ -1,4 +1,13 @@
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Broadcast the overlay's new visibility so every window's UI state (e.g.
+/// the toolbar toggle) tracks the REAL window state instead of a local guess.
+fn emit_visibility(app: &AppHandle, visible: bool) {
+    let _ = app.emit(
+        "voxtide://overlay",
+        serde_json::json!({ "visible": visible }),
+    );
+}
 
 #[tauri::command]
 pub fn show_overlay(app: AppHandle) -> Result<(), String> {
@@ -11,6 +20,7 @@ pub fn show_overlay(app: AppHandle) -> Result<(), String> {
     w.set_ignore_cursor_events(false)
         .map_err(|e| e.to_string())?;
     w.show().map_err(|e| e.to_string())?;
+    emit_visibility(&app, true);
     Ok(())
 }
 
@@ -19,7 +29,9 @@ pub fn hide_overlay(app: AppHandle) -> Result<(), String> {
     let w = app
         .get_webview_window("overlay")
         .ok_or("overlay window missing")?;
-    w.hide().map_err(|e| e.to_string())
+    w.hide().map_err(|e| e.to_string())?;
+    emit_visibility(&app, false);
+    Ok(())
 }
 
 #[tauri::command]

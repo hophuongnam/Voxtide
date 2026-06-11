@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { coalesceTokens, createTranscriptStore } from '../src/lib/stores.svelte';
+import { coalesceTokens, createConfigStore, createTranscriptStore } from '../src/lib/stores.svelte';
 
 describe('transcript store', () => {
   it('appends finals and clears live text on commit', () => {
@@ -92,6 +92,17 @@ describe('transcript store', () => {
     expect(t.original[0]!.text).toBe('two three');
   });
 
+  it('clearLive() clears both live strings and keeps committed rows', () => {
+    const t = createTranscriptStore();
+    t.final({ status: 'original', text: 'kept', chip: 'A', language: 'en', ts_ms: 1 });
+    t.live({ status: 'original', text: 'ghost', chip: 'A', language: 'en' });
+    t.live({ status: 'translation', text: 'bóng ma', chip: 'A', language: 'vi' });
+    t.clearLive();
+    expect(t.liveOriginal).toBe('');
+    expect(t.liveTranslation).toBe('');
+    expect(t.original).toHaveLength(1);
+  });
+
   it('original and translation produce matching row counts for the same speaker sequence', () => {
     const t = createTranscriptStore();
     // Speaker B utters multi-sentence content in both languages
@@ -103,6 +114,14 @@ describe('transcript store', () => {
     t.final({ status: 'translation', text: ' Ông ấy nói: ...', chip: 'B', language: 'vi', ts_ms: 3 });
     expect(t.original).toHaveLength(t.translation.length);
     expect(t.original).toHaveLength(1);
+  });
+});
+
+describe('config store', () => {
+  it('update() before the initial config load is a safe no-op (no IPC, no crash)', async () => {
+    const c = createConfigStore();
+    await expect(c.update({ mode: 'conversation' })).resolves.toBeUndefined();
+    expect(c.config).toBeNull();
   });
 });
 

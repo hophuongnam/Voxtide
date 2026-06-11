@@ -536,6 +536,84 @@ describe('MainApp past-session labels', () => {
   });
 });
 
+describe('MainApp session lifecycle hygiene', () => {
+  afterEach(async () => {
+    const { session, transcript } = await import('../src/lib/stores.svelte');
+    session.stop();
+    transcript.reset();
+  });
+
+  const standardMock = () =>
+    (invokeMock as any).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return sampleSessions;
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+  it('session-stopped clears the live partial and ignores stale session ids', async () => {
+    invokeMock.mockClear();
+    standardMock();
+    const { findByText, queryByText } = render(MainApp);
+    const { session } = await import('../src/lib/stores.svelte');
+
+    emitEvent('voxtide://event', { kind: 'session-started', session_id: 7, mode: 'meeting' });
+    emitEvent('voxtide://event', {
+      kind: 'transcript-live', status: 'original', text: 'ghost partial',
+      language: 'en', chip: null,
+    });
+    await findByText('ghost partial');
+
+    // A stale SessionStopped from a detached OLD worker must be ignored.
+    emitEvent('voxtide://event', { kind: 'session-stopped', session_id: 3, duration_ms: 1 });
+    expect(session.recording).toBe(true);
+    expect(queryByText('ghost partial')).not.toBeNull();
+
+    // The real stop clears the blinking partial along with recording state.
+    emitEvent('voxtide://event', { kind: 'session-stopped', session_id: 7, duration_ms: 100 });
+    await waitFor(() => {
+      expect(session.recording).toBe(false);
+      expect(queryByText('ghost partial')).toBeNull();
+    });
+  });
+
+  it('session-started refetches the sidebar list (live row appears)', async () => {
+    invokeMock.mockClear();
+    standardMock();
+    render(MainApp);
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.filter((c) => c[0] === 'list_sessions').length).toBe(1);
+    });
+    emitEvent('voxtide://event', { kind: 'session-started', session_id: 7, mode: 'meeting' });
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.filter((c) => c[0] === 'list_sessions').length).toBe(2);
+    });
+  });
+
+  it('overlay visibility events keep the toggle in sync', async () => {
+    invokeMock.mockClear();
+    standardMock();
+    const { container } = render(MainApp);
+    await waitFor(() => {
+      expect(container.querySelector('button[title="Show overlay"]')).not.toBeNull();
+    });
+    // Backend reports the overlay as visible (e.g. it was shown elsewhere or
+    // hid itself) — the toggle must track it, so the next click HIDES.
+    emitEvent('voxtide://overlay', { visible: true });
+    await fireEvent.click(container.querySelector('button[title="Show overlay"]') as HTMLElement);
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.some((c) => c[0] === 'hide_overlay')).toBe(true);
+    });
+    expect(invokeMock.mock.calls.some((c) => c[0] === 'show_overlay')).toBe(false);
+  });
+});
+
 describe('MainApp boot resilience', () => {
   afterEach(async () => {
     const { session, transcript } = await import('../src/lib/stores.svelte');

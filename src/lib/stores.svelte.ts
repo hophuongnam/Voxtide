@@ -1,4 +1,5 @@
 import type { AppConfig, TranscriptLine, TranslationStatus } from '../types';
+import { setConfig as persistConfig } from './ipc';
 import type { DeviceEntry, TokenRow } from './ipc';
 
 const LETTERS = ['A', 'B', 'C', 'D'];
@@ -111,6 +112,9 @@ export interface TranscriptStore {
    *  even if the speaker is unchanged, so a long monologue is chunked by
    *  utterance instead of growing into one unreadable block. */
   utteranceBreak(): void;
+  /** Drop the in-flight partials (e.g. on session stop — a leftover live
+   *  line otherwise blinks forever under the committed transcript). */
+  clearLive(): void;
   reset(): void;
 }
 
@@ -152,6 +156,10 @@ export function createTranscriptStore(): TranscriptStore {
     utteranceBreak() {
       breakOriginal = true;
       breakTranslation = true;
+    },
+    clearLive() {
+      liveOriginal = '';
+      liveTranslation = '';
     },
     reset() {
       original = [];
@@ -213,6 +221,11 @@ export interface ConfigStore {
   readonly apiKeyAccount: string;
   setConfig(c: AppConfig | null): void;
   setHasApiKey(v: boolean): void;
+  /** THE config-persist path: save the patched config to disk first
+   *  (pessimistic — a failed save must not leave the UI claiming a state
+   *  that didn't stick), then update the local store. No-op until the
+   *  initial config has loaded. Rejections propagate to the caller. */
+  update(patch: Partial<AppConfig>): Promise<void>;
 }
 
 export function createConfigStore(): ConfigStore {
@@ -225,6 +238,12 @@ export function createConfigStore(): ConfigStore {
     get apiKeyAccount() { return apiKeyAccount; },
     setConfig(c) { config = c; },
     setHasApiKey(v) { hasApiKey = v; },
+    async update(patch) {
+      if (!config) return;
+      const next = { ...config, ...patch };
+      await persistConfig(next);
+      config = next;
+    },
   };
 }
 

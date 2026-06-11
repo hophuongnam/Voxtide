@@ -18,7 +18,7 @@
   import {
     deleteSession,
     getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
-    onCoreEvent, searchTranscripts, setConfig, startSession, stopSession,
+    onCoreEvent, onOverlayVisibility, searchTranscripts, startSession, stopSession,
     showOverlay, hideOverlay,
   } from '../lib/ipc';
   import ConfirmDeleteSheet from '../components/sidebar/ConfirmDeleteSheet.svelte';
@@ -182,8 +182,21 @@
         session.start(ev.session_id, Date.now());
         // Snap to live view when a new capture starts so the user sees what they just initiated.
         viewingId = null; viewingSession = null; pastOriginal = []; pastTranslation = [];
+        // Refetch so the new row (the live one) appears in the sidebar now,
+        // not only after the session ends.
+        listSessions().then(v => sessions = v);
         break;
-      case 'session-stopped': session.stop(); listSessions().then(v => sessions = v); break;
+      case 'session-stopped':
+        // Stale guard: a worker that outlived stop()'s join can emit its
+        // SessionStopped AFTER a newer session started — ignore any stop
+        // that isn't for the session we're tracking.
+        if (session.sessionId !== null && ev.session_id !== session.sessionId) break;
+        session.stop();
+        // Drop the in-flight partial: nothing will finalize it now, and a
+        // leftover live line blinks forever under the committed transcript.
+        transcript.clearLive();
+        listSessions().then(v => sessions = v);
+        break;
       case 'transcript-live':
         transcript.live({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip }); break;
       case 'transcript-final':
@@ -200,6 +213,7 @@
   onMount(() => {
     let unlisten: (() => void) | undefined;
     let unHotkey: (() => void) | undefined;
+    let unOverlay: (() => void) | undefined;
     const ro = new ResizeObserver((entries) => {
       const first = entries[0];
       if (first) mainWidth = Math.round(first.contentRect.width);
@@ -220,6 +234,10 @@
           if (session.recording) await onStop();
           else await onStart();
         });
+        // Track the overlay's REAL visibility (it can hide itself, or be
+        // shown/hidden from another window) so the toolbar toggle never
+        // drifts out of sync with the actual window state.
+        unOverlay = await onOverlayVisibility((visible) => { overlayShown = visible; });
 
         // Silent update check. Skipped outside the Tauri runtime (vitest, vite
         // preview). Fire-and-forget so a slow CDN can't delay config load;
@@ -245,7 +263,7 @@
       }
     })();
 
-    return () => { unlisten?.(); unHotkey?.(); ro.disconnect(); clearInterval(tick); clearTimeout(searchTimer); };
+    return () => { unlisten?.(); unHotkey?.(); unOverlay?.(); ro.disconnect(); clearInterval(tick); clearTimeout(searchTimer); };
   });
 
   // Debounced, staleness-guarded search. The old per-keystroke await had no
@@ -318,48 +336,47 @@
       appError = String(e instanceof Error ? e.message : e);
     }
   }
+  // One guarded persist path for every settings mutation (was copy-pasted
+  // five times as `await setConfig(next); config.setConfig(next)`); failures
+  // surface in the error strip instead of as unhandled rejections.
+  function persist(patch: Partial<AppConfig>): Promise<void> {
+    return config.update(patch).catch((e) => {
+      appError = `settings: ${(e as { message?: string })?.message ?? e}`;
+    });
+  }
   async function onModeChange(m: Mode) {
     if (m === mode) return;
     mode = m;
-    const c = config.config;
-    if (!c || c.mode === m) return;
-    const next = { ...c, mode: m };
-    await setConfig(next);
-    config.setConfig(next);
+    if (config.config && config.config.mode !== m) await persist({ mode: m });
   }
   async function onSourceChange(d: DeviceEntry) {
     selectedSource = d;
     const c = config.config;
     if (!c) return;
-    const next = mode === 'meeting'
-      ? { ...c, default_meeting_source: d.id }
-      : { ...c, default_mic: d.id };
-    if (next.default_meeting_source === c.default_meeting_source &&
-        next.default_mic === c.default_mic) return;
-    await setConfig(next);
-    config.setConfig(next);
+    if (mode === 'meeting') {
+      if (c.default_meeting_source !== d.id) await persist({ default_meeting_source: d.id });
+    } else if (c.default_mic !== d.id) {
+      await persist({ default_mic: d.id });
+    }
   }
   async function onSwap()       {
-    const c = config.config!;
+    const c = config.config;
+    if (!c) return;
     // Swap source (a) and target (b) languages.
-    const next = { ...c, language_a: c.language_b, language_b: c.language_a };
-    await setConfig(next);
-    config.setConfig(next);
+    await persist({ language_a: c.language_b, language_b: c.language_a });
   }
   async function onReadingChange(next: AppConfig) {
     const c = config.config;
     if (!c) return;
     if (c.font_size === next.font_size && c.show_pinyin === next.show_pinyin) return;
-    await setConfig(next);
-    config.setConfig(next);
+    await persist({ font_size: next.font_size, show_pinyin: next.show_pinyin });
   }
   async function onLangPick(which: 'a' | 'b', code: string) {
-    const c = config.config!;
+    const c = config.config;
+    if (!c) return;
     if (which === 'a' && code === c.language_b) return;
     if (which === 'b' && code === c.language_a) return;
-    const next = which === 'a' ? { ...c, language_a: code } : { ...c, language_b: code };
-    await setConfig(next);
-    config.setConfig(next);
+    await persist(which === 'a' ? { language_a: code } : { language_b: code });
   }
   async function onOverlayToggle() {
     if (overlayShown) { await hideOverlay(); overlayShown = false; }

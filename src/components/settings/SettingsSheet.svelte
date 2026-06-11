@@ -5,7 +5,7 @@
   import HotkeySection from './HotkeySection.svelte';
   import AppearanceSection from './AppearanceSection.svelte';
   import ReadingSection from './ReadingSection.svelte';
-  import { getConfig, hasApiKey, setConfig } from '../../lib/ipc';
+  import { getConfig, hasApiKey } from '../../lib/ipc';
   import { config } from '../../lib/stores.svelte';
   import { applyTheme } from '../../theme/theme';
   import type { AppConfig } from '../../types';
@@ -18,6 +18,9 @@
 
   async function reload() {
     cfg = await getConfig();
+    // Seed the global store too: config.update() patches on top of it, and
+    // the sheet may open before (or independently of) MainApp's boot fetch.
+    config.setConfig(cfg);
     keyPresent = await hasApiKey(account);
     config.setHasApiKey(keyPresent);
   }
@@ -26,10 +29,13 @@
 
   async function onChange(next: AppConfig) {
     const prev = cfg;
+    // Sheet-local state keeps what the user picked visible immediately; the
+    // single guarded persist path (disk first, then global store) does the
+    // rest. Rejections propagate so field-level handlers (hotkey) can show
+    // them inline.
     cfg = next;
-    config.setConfig(next);
+    await config.update(next);
     if (!prev || prev.theme !== next.theme) applyTheme(next.theme);
-    await setConfig(next);
   }
 </script>
 

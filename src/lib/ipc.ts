@@ -61,6 +61,12 @@ export const showOverlay = () => invoke<void>('show_overlay');
 export const hideOverlay = () => invoke<void>('hide_overlay');
 export const setOverlayClickThrough = (clickThrough: boolean) =>
   invoke<void>('set_overlay_click_through', { clickThrough });
+/** Fires whenever the overlay window's real visibility changes (the
+ *  show/hide commands emit after acting), so UI toggles can track the
+ *  actual window state instead of a local guess. */
+export function onOverlayVisibility(handler: (visible: boolean) => void): Promise<UnlistenFn> {
+  return listen<{ visible: boolean }>('voxtide://overlay', (e) => handler(e.payload.visible));
+}
 
 // --- events ---------------------------------------------------------------
 export type CoreEvent =
