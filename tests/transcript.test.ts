@@ -103,3 +103,22 @@ describe('NoApiKey', () => {
     expect(getByText('Add API key')).toBeTruthy();
   });
 });
+
+describe('TranscriptPane live-line language', () => {
+  it('uses the detected live language over the column default (pinyin on live zh under a non-zh column)', () => {
+    const { container } = render(TranscriptPane, {
+      props: {
+        mode: 'conversation',
+        // Column default says EN — but the DETECTED live language is zh.
+        a: { code: 'EN', name: 'English' },
+        b: { code: 'VI', name: 'Vietnamese' },
+        original: [], translation: [],
+        liveOriginal: '你好', liveTranslation: '',
+        liveOriginalLang: 'zh',
+        showPinyin: true,
+        cfg: sampleCfg,
+      },
+    });
+    expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
+  });
+});

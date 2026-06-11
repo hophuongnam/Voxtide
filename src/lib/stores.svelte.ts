@@ -106,6 +106,11 @@ export interface TranscriptStore {
   readonly translation: TranscriptLine[];
   readonly liveOriginal: string;
   readonly liveTranslation: string;
+  /** Detected language of the in-flight partials, straight from the wire
+   *  event (the column default is only a fallback — live zh under an EN
+   *  column still gets its pinyin). */
+  readonly liveOriginalLang: string | null;
+  readonly liveTranslationLang: string | null;
   live(input: LiveInput): void;
   final(input: FinalInput): void;
   /** Speech pause detected — the next final in each column starts a new row
@@ -123,6 +128,8 @@ export function createTranscriptStore(): TranscriptStore {
   let translation = $state<TranscriptLine[]>([]);
   let liveOriginal = $state('');
   let liveTranslation = $state('');
+  let liveOriginalLang = $state<string | null>(null);
+  let liveTranslationLang = $state<string | null>(null);
   // Set by utteranceBreak(); consumed by the next final() in each column.
   // NOTE (suspected live-only desync edge): Soniox's translation final for the
   // PRE-pause utterance can arrive after the <end> break event. That late
@@ -138,9 +145,16 @@ export function createTranscriptStore(): TranscriptStore {
     get translation() { return translation; },
     get liveOriginal() { return liveOriginal; },
     get liveTranslation() { return liveTranslation; },
+    get liveOriginalLang() { return liveOriginalLang; },
+    get liveTranslationLang() { return liveTranslationLang; },
     live(input) {
-      if (input.status === 'translation') liveTranslation = input.text;
-      else liveOriginal = input.text;
+      if (input.status === 'translation') {
+        liveTranslation = input.text;
+        liveTranslationLang = input.language;
+      } else {
+        liveOriginal = input.text;
+        liveOriginalLang = input.language;
+      }
     },
     final(input) {
       const isTrans = input.status === 'translation';
@@ -160,12 +174,16 @@ export function createTranscriptStore(): TranscriptStore {
     clearLive() {
       liveOriginal = '';
       liveTranslation = '';
+      liveOriginalLang = null;
+      liveTranslationLang = null;
     },
     reset() {
       original = [];
       translation = [];
       liveOriginal = '';
       liveTranslation = '';
+      liveOriginalLang = null;
+      liveTranslationLang = null;
       breakOriginal = false;
       breakTranslation = false;
     },

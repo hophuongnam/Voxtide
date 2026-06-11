@@ -103,6 +103,17 @@ describe('transcript store', () => {
     expect(t.original).toHaveLength(1);
   });
 
+  it('live() keeps the detected language per column (pinyin on live zh)', () => {
+    const t = createTranscriptStore();
+    t.live({ status: 'original', text: '你好', chip: null, language: 'zh' });
+    t.live({ status: 'translation', text: 'hel', chip: null, language: 'en' });
+    expect(t.liveOriginalLang).toBe('zh');
+    expect(t.liveTranslationLang).toBe('en');
+    t.clearLive();
+    expect(t.liveOriginalLang).toBeNull();
+    expect(t.liveTranslationLang).toBeNull();
+  });
+
   it('original and translation produce matching row counts for the same speaker sequence', () => {
     const t = createTranscriptStore();
     // Speaker B utters multi-sentence content in both languages

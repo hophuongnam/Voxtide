@@ -467,6 +467,8 @@
           translation={transcript.translation}
           liveOriginal={transcript.liveOriginal}
           liveTranslation={transcript.liveTranslation}
+          liveOriginalLang={transcript.liveOriginalLang}
+          liveTranslationLang={transcript.liveTranslationLang}
           {fontSize} {showPinyin}
           cfg={config.config} onconfigchange={onReadingChange} />
       {/if}

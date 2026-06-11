@@ -11,6 +11,10 @@
     translation: TranscriptLine[];
     liveOriginal: string;
     liveTranslation: string;
+    /** Detected language of the in-flight partials (from the wire event);
+     *  the column code is only the fallback. */
+    liveOriginalLang?: string | null;
+    liveTranslationLang?: string | null;
     fontSize?: FontSize;
     showPinyin?: boolean;
     cfg?: AppConfig | null;
@@ -18,6 +22,7 @@
   }
   const {
     mode, a, b, original, translation, liveOriginal, liveTranslation,
+    liveOriginalLang = null, liveTranslationLang = null,
     fontSize = 'm', showPinyin = false, cfg = null, onconfigchange = () => {},
   }: Props = $props();
 
@@ -99,12 +104,13 @@
     {#each original as line}
       <Line {line} {showPinyin} />
     {/each}
-    <!-- Live-line language is derived from the 2-letter ISO code (e.g. 'zh');
-         the pinyin gate in Line.svelte matches `language === 'zh'`. A non-2-letter
-         or regional code (zh-Hans, cmn) would silently disable pinyin on live lines. -->
+    <!-- Live-line language: the DETECTED language from the wire event when
+         present, else the column's 2-letter ISO code. The pinyin gate in
+         Line.svelte matches `language === 'zh'`, so live zh gets pinyin
+         immediately instead of reflowing when the line finalizes. -->
     {#if liveOriginal}
       <Line line={{ ts_ms: Date.now(), status: 'original', text: liveOriginal,
-                    language: a.code.toLowerCase(), chip: null, live: true }} {showPinyin} />
+                    language: liveOriginalLang ?? a.code.toLowerCase(), chip: null, live: true }} {showPinyin} />
     {/if}
   </Column>
   <div class="w-px" style:background="var(--vt-border)"></div>
@@ -115,7 +121,7 @@
     {/each}
     {#if liveTranslation}
       <Line line={{ ts_ms: Date.now(), status: 'translation', text: liveTranslation,
-                    language: b.code.toLowerCase(), chip: null, live: true }} {showPinyin} translated />
+                    language: liveTranslationLang ?? b.code.toLowerCase(), chip: null, live: true }} {showPinyin} translated />
     {/if}
   </Column>
 </div>
