@@ -64,12 +64,22 @@
       to.scrollTop = from.scrollTop;
       requestAnimationFrame(() => { syncing = false; });
     };
-    const recomputeAtBottom = () => {
-      if (autoScrolling) return;
-      atBottom = l.scrollTop + l.clientHeight >= l.scrollHeight - NEAR_BOTTOM_PX;
+    const nearBottom = (el: HTMLElement) =>
+      el.scrollTop + el.clientHeight >= el.scrollHeight - NEAR_BOTTOM_PX;
+    // Each column judges follow-tail from its OWN geometry, but only for USER
+    // scrolls: `syncing` marks mirror echoes, which must never vote — the
+    // mirror clamps the shorter column near its own bottom, so an echo there
+    // would re-engage while the user is scrolling AWAY in the taller one.
+    // (Judging only the left column was the old bug: with a taller left,
+    // bottoming out the right could never re-engage.)
+    const onL = () => {
+      if (!syncing && !autoScrolling) atBottom = nearBottom(l);
+      mirror(l, r);
     };
-    const onL = () => { mirror(l, r); recomputeAtBottom(); };
-    const onR = () => { mirror(r, l); };
+    const onR = () => {
+      if (!syncing && !autoScrolling) atBottom = nearBottom(r);
+      mirror(r, l);
+    };
     l.addEventListener('scroll', onL, { passive: true });
     r.addEventListener('scroll', onR, { passive: true });
     return () => {

@@ -122,3 +122,52 @@ describe('TranscriptPane live-line language', () => {
     expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
   });
 });
+
+describe('TranscriptPane follow-tail', () => {
+  const mkLines = (n: number, prefix: string, status: 'original' | 'translation') =>
+    Array.from({ length: n }, (_, i) => ({
+      ts_ms: i, status, text: `${prefix}${i}`, language: 'en', chip: null, live: false,
+    }));
+  const baseProps = (nOrig: number) => ({
+    mode: 'meeting' as const,
+    a: { code: 'EN', name: 'English' },
+    b: { code: 'VI', name: 'Vietnamese' },
+    original: mkLines(nOrig, 'o', 'original'),
+    translation: mkLines(20, 't', 'translation'),
+    liveOriginal: '', liveTranslation: '',
+  });
+  const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+  it('re-engages from the right column; mirror echoes never override the user column', async () => {
+    const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
+    const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
+    // Fake geometry: TALL left (1000), SHORT right (500), 100px viewports.
+    const geom = (el: HTMLElement, scrollHeight: number) => {
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+      Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
+    };
+    geom(left!, 1000); geom(right!, 500);
+    // Drain the mount-time auto-scroll (autoScrolling guard clears on 2nd rAF).
+    await raf(); await raf(); await raf();
+
+    // User scrolls the TALL column up, away from its bottom → disengage.
+    left!.scrollTop = 500; // 500+100 < 1000-32
+    left!.dispatchEvent(new Event('scroll'));
+    // The mirror's echo on the SHORT column (clamped near ITS bottom) fires
+    // while syncing — it must NOT re-engage follow-tail.
+    right!.scrollTop = 460; // 460+100 >= 500-32 → "near bottom" if judged
+    right!.dispatchEvent(new Event('scroll'));
+
+    await rerender(baseProps(21)); // growth: would snap if (wrongly) engaged
+    await raf(); await raf(); await raf();
+    expect(left!.scrollTop).toBe(500); // no snap → still disengaged
+
+    // Now the USER scrolls the right column to its bottom → re-engage.
+    await raf(); // let the previous mirror's syncing flag clear
+    right!.scrollTop = 470;
+    right!.dispatchEvent(new Event('scroll'));
+    await rerender(baseProps(22));
+    await raf(); await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000); // snapped → re-engaged from the right
+  });
+});
