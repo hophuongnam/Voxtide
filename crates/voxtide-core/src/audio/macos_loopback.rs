@@ -11,7 +11,7 @@ use tokio::sync::oneshot;
 
 use crate::audio::cpal_pipeline::CapturePipeline;
 use crate::audio::resampler::{Resampler, ResamplerSpec};
-use crate::audio::{channel, AudioSource, AudioStream, SourceKind, INIT_TIMEOUT};
+use crate::audio::{channel, AudioSource, AudioStream, INIT_TIMEOUT};
 use crate::{Error, Result};
 
 // ─── Strategy selector ───────────────────────────────────────────────────────
@@ -78,10 +78,6 @@ impl AudioSource for MacLoopbackSource {
 
     fn label(&self) -> &str {
         &self.target.label
-    }
-
-    fn kind(&self) -> SourceKind {
-        SourceKind::SystemLoopback
     }
 }
 

@@ -62,14 +62,6 @@ impl Chunker {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceKind {
-    Mic,
-    SystemLoopback,
-    Mock,
-}
-
 pub struct AudioStream {
     pub rx: mpsc::Receiver<AudioFrame>,
     pub stop: oneshot::Sender<()>,
@@ -78,7 +70,6 @@ pub struct AudioStream {
 pub trait AudioSource: Send + Sync {
     fn start(&self) -> Result<AudioStream>;
     fn label(&self) -> &str;
-    fn kind(&self) -> SourceKind;
 }
 
 pub fn channel() -> (mpsc::Sender<AudioFrame>, mpsc::Receiver<AudioFrame>) {

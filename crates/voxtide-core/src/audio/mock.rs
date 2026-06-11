@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use tokio::sync::oneshot;
 
 use crate::audio::resampler::{f32_to_i16, Resampler, ResamplerSpec};
-use crate::audio::{channel, AudioSource, AudioStream, Chunker, SourceKind, CHUNK_MS};
+use crate::audio::{channel, AudioSource, AudioStream, Chunker, CHUNK_MS};
 use crate::{Error, Result};
 
 /// Interleaved PCM data together with its source format, shared between open() and the async task.
@@ -122,8 +122,5 @@ impl AudioSource for WavSource {
     }
     fn label(&self) -> &str {
         &self.label
-    }
-    fn kind(&self) -> SourceKind {
-        SourceKind::Mock
     }
 }

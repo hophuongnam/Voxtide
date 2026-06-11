@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::audio::cpal_pipeline::{start_capture, CpalCaptureSpec};
-use crate::audio::{AudioSource, AudioStream, SourceKind};
+use crate::audio::{AudioSource, AudioStream};
 use crate::{Error, Result};
 
 // ─── Device listing ──────────────────────────────────────────────────────────
@@ -90,9 +90,5 @@ impl AudioSource for MicSource {
 
     fn label(&self) -> &str {
         &self.label
-    }
-
-    fn kind(&self) -> SourceKind {
-        SourceKind::Mic
     }
 }

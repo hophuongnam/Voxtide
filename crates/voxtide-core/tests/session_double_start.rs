@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use voxtide_core::audio::mock::WavSource;
-use voxtide_core::audio::{AudioSource, AudioStream, SourceKind};
+use voxtide_core::audio::{AudioSource, AudioStream};
 use voxtide_core::persistence::sessions::Sessions;
 use voxtide_core::persistence::Store;
 use voxtide_core::session::{CoreEvent, SessionController, StartArgs};
@@ -23,9 +23,6 @@ impl AudioSource for FailingSource {
     }
     fn label(&self) -> &str {
         "failing"
-    }
-    fn kind(&self) -> SourceKind {
-        SourceKind::Mic
     }
 }
 
