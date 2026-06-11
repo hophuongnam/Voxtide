@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -108,15 +108,6 @@ impl SonioxBYOK {
             event_rx: None,
             task: None,
         }
-    }
-
-    /// Wall-clock milliseconds since the Unix epoch. Saturates to 0 on clock
-    /// skew (pre-1970) so we never panic.
-    fn now_ms() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
     }
 }
 
@@ -331,7 +322,7 @@ impl TranslationProvider for SonioxBYOK {
                                                             language: t.language,
                                                             status: t.translation_status,
                                                             speaker: t.speaker,
-                                                            ts_ms: SonioxBYOK::now_ms(),
+                                                            ts_ms: crate::now_ms(),
                                                         });
                                                     } else if matches!(t.translation_status, TranslationStatus::Translation) {
                                                         trans_text.push_str(&t.text);

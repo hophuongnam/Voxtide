@@ -9,9 +9,11 @@
 
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use tokio::sync::broadcast;
+
+use crate::now_ms;
 
 use crate::audio::AudioSource;
 use crate::latency::LatencyTracker;
@@ -595,11 +597,4 @@ async fn handle_event(ctx: &mut EventCtx<'_>, ev: TranslationEvent) -> ControlFl
         TranslationEvent::Stopped => return ControlFlow::Break(()),
     }
     ControlFlow::Continue(())
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
