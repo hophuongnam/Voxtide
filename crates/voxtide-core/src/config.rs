@@ -76,14 +76,36 @@ impl ConfigStore {
             std::fs::create_dir_all(parent)?;
         }
         let bytes = serde_json::to_vec_pretty(cfg)?;
-        std::fs::write(&self.path, bytes)?;
+        // Write-to-tmp + atomic rename (same pattern as keychain.rs; no chmod
+        // — config isn't secret). The UI persists on every click, so the old
+        // in-place truncate-write left a wide window where a crash or full
+        // disk produced a half-written config.json.
+        let tmp = self.path.with_extension("json.tmp");
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, &self.path)?;
         Ok(())
     }
 
     pub fn load(&self) -> Result<AppConfig> {
         match std::fs::read(&self.path) {
             Ok(b) => {
-                let mut cfg: AppConfig = serde_json::from_slice(&b).map_err(Error::from)?;
+                let mut cfg: AppConfig = match serde_json::from_slice(&b) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        // A corrupt preferences file must not brick the app
+                        // (it used to be a hard load error). Quarantine the
+                        // bytes for inspection and fall back to defaults; the
+                        // next save() recreates a clean file.
+                        let quarantine = self.path.with_extension("json.corrupt");
+                        let _ = std::fs::rename(&self.path, &quarantine);
+                        tracing::warn!(
+                            error = %e,
+                            path = %self.path.display(),
+                            "corrupt config quarantined; using defaults"
+                        );
+                        return Ok(AppConfig::default());
+                    }
+                };
                 // Migration shim: before the hotkey field was honored it was
                 // write-only — every config.json carries the old default
                 // "Ctrl+Shift+V" while registration hardcoded

@@ -207,29 +207,38 @@
     }, 250);
 
     (async () => {
-      const cfg = await getConfig();
-      config.setConfig(cfg);
-      mode = cfg.mode;
-      applyTheme(cfg.theme);
-      config.setHasApiKey(await hasApiKey(config.apiKeyAccount));
-      sessions = await listSessions();
-      refreshSources();
-      unlisten = await onCoreEvent(handleCoreEvent);
-      unHotkey = await listen('voxtide://hotkey/toggle', async () => {
-        if (session.recording) await onStop();
-        else await onStart();
-      });
+      try {
+        // Listeners attach FIRST: if any boot fetch below rejects, the app
+        // must still react to core events and the hotkey. (The old order put
+        // the fallible fetches first with no catch — one rejection left the
+        // whole app inert: no event listener, no hotkey, no updater.)
+        unlisten = await onCoreEvent(handleCoreEvent);
+        unHotkey = await listen('voxtide://hotkey/toggle', async () => {
+          if (session.recording) await onStop();
+          else await onStart();
+        });
 
-      // Silent update check. Skipped outside the Tauri runtime (vitest, vite preview).
-      // Errors (offline, no manifest yet, bad signature) stay in the console — never
-      // block the app or surface a banner unless we find an actual update.
-      if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-        try {
-          const update = await check();
-          if (update && !updateDismissed) pendingUpdate = update;
-        } catch (e) {
-          console.debug('updater check failed', e);
+        // Silent update check. Skipped outside the Tauri runtime (vitest, vite
+        // preview). Fire-and-forget so a slow CDN can't delay config load;
+        // errors (offline, no manifest yet, bad signature) stay in the console
+        // — never block the app or surface a banner unless there's an update.
+        if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+          void check()
+            .then((update) => {
+              if (update && !updateDismissed) pendingUpdate = update;
+            })
+            .catch((e) => console.debug('updater check failed', e));
         }
+
+        const cfg = await getConfig();
+        config.setConfig(cfg);
+        mode = cfg.mode;
+        applyTheme(cfg.theme);
+        config.setHasApiKey(await hasApiKey(config.apiKeyAccount));
+        sessions = await listSessions();
+        refreshSources();
+      } catch (e) {
+        appError = `startup: ${e instanceof Error ? e.message : e}`;
       }
     })();
 

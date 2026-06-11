@@ -411,3 +411,32 @@ describe('MainApp language swap', () => {
     });
   });
 });
+
+describe('MainApp boot resilience', () => {
+  afterEach(async () => {
+    const { session, transcript } = await import('../src/lib/stores.svelte');
+    session.stop();
+    transcript.reset();
+  });
+
+  it('a failing config fetch still renders the app with an error strip and a live event listener', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') throw new Error('disk exploded');
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return sampleSessions;
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+    const { findByTestId, findByText } = render(MainApp);
+    // The boot failure surfaces in the T5 error strip instead of an
+    // unhandled rejection that leaves the app inert.
+    const strip = await findByTestId('app-error');
+    expect(strip.textContent).toContain('startup:');
+    expect(strip.textContent).toContain('disk exploded');
+    // The core-event listener attached BEFORE the failing fetch — a backend
+    // event still drives the UI:
+    emitEvent('voxtide://event', { kind: 'session-started', session_id: 7, mode: 'meeting' });
+    await findByText('Stop');
+  });
+});

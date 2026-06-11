@@ -105,6 +105,40 @@ fn loading_missing_file_returns_default() {
 }
 
 #[test]
+fn corrupt_config_quarantines_and_falls_back_to_defaults() {
+    // A corrupt config.json used to be a hard load error — the app refused to
+    // start over a preferences file. It must quarantine + default instead.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    std::fs::write(&path, b"{definitely not json").unwrap();
+    let store = ConfigStore::at(&path);
+    let cfg = store.load().unwrap();
+    assert_eq!(cfg, AppConfig::default());
+    assert!(
+        path.with_extension("json.corrupt").exists(),
+        "corrupt bytes must be preserved for inspection"
+    );
+    assert!(!path.exists(), "the corrupt file was moved aside");
+    // The store is immediately usable again.
+    store.save(&cfg).unwrap();
+    assert_eq!(store.load().unwrap(), cfg);
+}
+
+#[test]
+fn save_leaves_no_tmp_residue() {
+    // save() writes config.json.tmp then renames over the target (atomic on
+    // the same filesystem) — a crash mid-write can no longer truncate the
+    // live file. Pin the mechanism's visible contract: clean round-trip, no
+    // leftover tmp.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let store = ConfigStore::at(&path);
+    store.save(&AppConfig::default()).unwrap();
+    assert!(!path.with_extension("json.tmp").exists());
+    assert_eq!(store.load().unwrap(), AppConfig::default());
+}
+
+#[test]
 fn default_config_has_reading_defaults() {
     let cfg = AppConfig::default();
     assert!(matches!(cfg.font_size, FontSize::M));
