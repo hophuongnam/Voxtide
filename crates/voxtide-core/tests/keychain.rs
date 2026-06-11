@@ -65,3 +65,32 @@ fn file_is_user_only() {
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "secrets.json must be 0600, got {:o}", mode);
 }
+
+#[test]
+fn corrupt_store_recovers_on_set() {
+    // A corrupt secrets.json used to propagate the parse error out of set(),
+    // permanently blocking key storage (even "clear key" couldn't heal it).
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("secrets.json");
+    std::fs::write(&path, b"{ definitely not json").unwrap();
+
+    let kc = Keychain::new(&path);
+    kc.set("default", "sk_live_new").unwrap();
+    assert_eq!(kc.get("default").unwrap(), "sk_live_new");
+    assert!(
+        path.with_extension("json.corrupt").exists(),
+        "corrupt bytes must be quarantined, not destroyed"
+    );
+}
+
+#[test]
+fn corrupt_store_recovers_on_delete() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("secrets.json");
+    std::fs::write(&path, b"][").unwrap();
+
+    let kc = Keychain::new(&path);
+    kc.delete("anything").unwrap();
+    // The store now behaves as empty (quarantined aside).
+    assert!(kc.get("anything").is_err());
+}
