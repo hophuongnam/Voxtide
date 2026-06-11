@@ -89,7 +89,9 @@ export function appendFinal(
 ): TranscriptLine[] {
   const last = list[list.length - 1];
   if (last && last.chip === input.chip && !pendingBreak) {
-    list[list.length - 1] = { ...last, text: last.text + input.text };
+    // In-place append: the arrays are deep $state proxies (live store) or
+    // plain locals (replay) — either way no object/array copy per merge.
+    last.text += input.text;
     return list;
   }
   list.push({

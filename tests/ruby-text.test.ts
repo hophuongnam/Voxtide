@@ -28,3 +28,20 @@ describe('RubyText', () => {
     expect(container.querySelectorAll('ruby').length).toBe(0);
   });
 });
+
+describe('RubyText live debounce', () => {
+  it('live text renders plain first, pinyin lands after the 150ms debounce', async () => {
+    const { container } = render(RubyText, { props: { text: '你好', live: true } });
+    // Immediately: plain text, no per-frame conversion of the whole line.
+    expect(container.querySelectorAll('ruby').length).toBe(0);
+    expect(container.textContent).toContain('你好');
+    // After the debounce window the conversion lands.
+    await new Promise((r) => setTimeout(r, 220));
+    expect(container.querySelectorAll('ruby').length).toBe(2);
+  });
+
+  it('finalized text (live=false) converts immediately', () => {
+    const { container } = render(RubyText, { props: { text: '你好', live: false } });
+    expect(container.querySelectorAll('ruby').length).toBe(2);
+  });
+});

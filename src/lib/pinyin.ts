@@ -11,7 +11,9 @@ export interface PinyinChar {
 // For an unresolvable Han codepoint pinyin also echoes origin — treat
 // any "no real pinyin" case as plain text (empty string).
 
-const CACHE_MAX = 256;
+// 512: committed rows re-convert on every merge into the same row, so the
+// cache must comfortably hold a long session's distinct row texts.
+const CACHE_MAX = 512;
 const cache = new Map<string, PinyinChar[]>();
 
 function compute(text: string): PinyinChar[] {

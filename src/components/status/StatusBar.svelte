@@ -5,7 +5,6 @@
   interface Props {
     recording: boolean;
     elapsedMs: number;
-    levelDb: number;
     latencyMs: number | null;
     mode: 'meeting' | 'conversation';
     translationSummary: string;
@@ -37,7 +36,6 @@
   <span style:color="var(--vt-dim)">│</span>
   <div class="flex items-center gap-2">
     <LevelMeter active={p.recording} />
-    <span>{p.recording ? `${p.levelDb} dB` : ''}</span>
   </div>
   {#if showModel}<span style:color="var(--vt-dim)">│</span><span>SONIOX · {p.model}</span>{/if}
   {#if showLatency}

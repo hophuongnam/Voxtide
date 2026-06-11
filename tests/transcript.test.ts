@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/svelte';
+import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import TranscriptPane from '../src/components/transcript/TranscriptPane.svelte';
 import EmptyState from '../src/components/transcript/EmptyState.svelte';
 import NoApiKey from '../src/components/transcript/NoApiKey.svelte';
@@ -105,7 +105,7 @@ describe('NoApiKey', () => {
 });
 
 describe('TranscriptPane live-line language', () => {
-  it('uses the detected live language over the column default (pinyin on live zh under a non-zh column)', () => {
+  it('uses the detected live language over the column default (pinyin on live zh under a non-zh column)', async () => {
     const { container } = render(TranscriptPane, {
       props: {
         mode: 'conversation',
@@ -119,7 +119,10 @@ describe('TranscriptPane live-line language', () => {
         cfg: sampleCfg,
       },
     });
-    expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
+    // Live conversion is debounced 150ms (perf): pinyin lands shortly after.
+    await waitFor(() => {
+      expect(container.querySelectorAll('ruby').length).toBeGreaterThan(0);
+    });
   });
 });
 

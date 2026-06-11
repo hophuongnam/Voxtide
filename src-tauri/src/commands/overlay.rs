@@ -1,8 +1,15 @@
-use tauri::{AppHandle, Emitter, Manager};
+use std::sync::atomic::Ordering;
 
-/// Broadcast the overlay's new visibility so every window's UI state (e.g.
-/// the toolbar toggle) tracks the REAL window state instead of a local guess.
-fn emit_visibility(app: &AppHandle, visible: bool) {
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::state::AppState;
+
+/// Record + broadcast the overlay's new visibility: the AtomicBool gates the
+/// event forwarder (no token events into a hidden webview), and the event
+/// keeps every window's UI state (e.g. the toolbar toggle) tracking the REAL
+/// window state instead of a local guess.
+fn set_visibility(app: &AppHandle, state: &State<'_, AppState>, visible: bool) {
+    state.overlay_visible.store(visible, Ordering::Relaxed);
     let _ = app.emit(
         "voxtide://overlay",
         serde_json::json!({ "visible": visible }),
@@ -10,7 +17,7 @@ fn emit_visibility(app: &AppHandle, visible: bool) {
 }
 
 #[tauri::command]
-pub fn show_overlay(app: AppHandle) -> Result<(), String> {
+pub fn show_overlay(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let w = app
         .get_webview_window("overlay")
         .ok_or("overlay window missing")?;
@@ -20,17 +27,17 @@ pub fn show_overlay(app: AppHandle) -> Result<(), String> {
     w.set_ignore_cursor_events(false)
         .map_err(|e| e.to_string())?;
     w.show().map_err(|e| e.to_string())?;
-    emit_visibility(&app, true);
+    set_visibility(&app, &state, true);
     Ok(())
 }
 
 #[tauri::command]
-pub fn hide_overlay(app: AppHandle) -> Result<(), String> {
+pub fn hide_overlay(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let w = app
         .get_webview_window("overlay")
         .ok_or("overlay window missing")?;
     w.hide().map_err(|e| e.to_string())?;
-    emit_visibility(&app, false);
+    set_visibility(&app, &state, false);
     Ok(())
 }
 

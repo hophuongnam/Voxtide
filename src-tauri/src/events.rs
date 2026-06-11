@@ -1,14 +1,24 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::{AppHandle, Emitter};
 use voxtide_core::session::CoreEvent;
 
-/// Forward a core event to the webview verbatim. `CoreEvent` derives
+/// Forward a core event to the webviews verbatim. `CoreEvent` derives
 /// `Serialize` with the wire contract baked in (`tag = "kind"`, kebab-case
 /// variant names, snake_case fields), so there is no translation layer: the
 /// emitted JSON is exactly what `src/lib/ipc.ts` consumes. This replaced a
 /// hand-written `WireEvent` mirror + ~47-line copying match that could silently
 /// drift from `CoreEvent`. Shape is pinned by the tests below.
-pub fn forward(app: &AppHandle, ev: CoreEvent) {
-    let _ = app.emit("voxtide://event", &ev);
+///
+/// Targeted emits: always to "main"; to "overlay" only while it's visible —
+/// a broadcast `emit` serialized + delivered every token event into the
+/// hidden overlay webview. (The rare `voxtide://config`/`voxtide://overlay`
+/// emits elsewhere stay broadcast.)
+pub fn forward(app: &AppHandle, overlay_visible: &AtomicBool, ev: CoreEvent) {
+    let _ = app.emit_to("main", "voxtide://event", &ev);
+    if overlay_visible.load(Ordering::Relaxed) {
+        let _ = app.emit_to("overlay", "voxtide://event", &ev);
+    }
 }
 
 #[cfg(test)]

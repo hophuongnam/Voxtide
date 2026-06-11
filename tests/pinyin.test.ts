@@ -35,7 +35,7 @@ describe('toPinyin', () => {
 
   it('evicts LRU entries beyond the cap', () => {
     const first = toPinyin('seed-string');
-    for (let i = 0; i < 256; i++) toPinyin('filler-' + i);
+    for (let i = 0; i < 512; i++) toPinyin('filler-' + i);
     expect(toPinyin('seed-string')).not.toBe(first);
   });
 });

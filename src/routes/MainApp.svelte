@@ -474,7 +474,7 @@
       {/if}
       <StatusBar
         recording={session.recording}
-        elapsedMs={elapsedMs} levelDb={-18}
+        elapsedMs={elapsedMs}
         latencyMs={session.latencyMs}
         {mode}
         translationSummary={summary}

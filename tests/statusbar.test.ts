@@ -4,7 +4,7 @@ import StatusBar from '../src/components/status/StatusBar.svelte';
 
 const props = {
   recording: true, elapsedMs: 38 * 60 * 1000 + 24 * 1000,
-  levelDb: -18, latencyMs: 262, mode: 'meeting' as const,
+  latencyMs: 262, mode: 'meeting' as const,
   translationSummary: 'one_way → VI', model: 'stt-rt-v4',
   audioFormat: '16 kHz · mono · s16le',
   version: '0.1.1',
