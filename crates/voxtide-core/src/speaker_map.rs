@@ -1,6 +1,13 @@
 use std::collections::BTreeMap;
 
-const LETTERS: &[char] = &['A', 'B', 'C', 'D'];
+// 26 chips before any wrap: the old 4-letter table gave the 5th speaker 'A'
+// again, fusing two different people under chip-equality merging — and only
+// the wrapped letter is persisted, so the fusion was unrecoverable. The
+// modulo below stays for the pathological >26 case (reuse beats panicking).
+const LETTERS: &[char] = &[
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+    'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct SpeakerMap {

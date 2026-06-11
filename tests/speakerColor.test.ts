@@ -8,7 +8,8 @@ describe('speakerVar', () => {
     expect(speakerVar('C')).toBe('var(--vt-speaker-c)');
     expect(speakerVar('D')).toBe('var(--vt-speaker-d)');
   });
-  it('wraps at E back to A', () => {
+  it('cycles the 4-color palette across the full A–Z chip range', () => {
     expect(speakerVar('E')).toBe('var(--vt-speaker-a)');
+    expect(speakerVar('Z')).toBe('var(--vt-speaker-b)'); // idx 25 % 4 = 1
   });
 });

@@ -2,7 +2,9 @@ import type { AppConfig, TranscriptLine, TranslationStatus } from '../types';
 import { setConfig as persistConfig } from './ipc';
 import type { DeviceEntry, TokenRow } from './ipc';
 
-const LETTERS = ['A', 'B', 'C', 'D'];
+// Mirrors voxtide-core's SpeakerMap table: 26 chips before any wrap, so
+// replay re-letters >4-speaker sessions the same way the live path did.
+const LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
 
 function asStatus(s: string): TranslationStatus {
   return s === 'original' || s === 'translation' ? s : 'none';

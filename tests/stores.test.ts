@@ -175,6 +175,18 @@ describe('coalesceTokens (past-session viewer)', () => {
     expect(out.translation).toHaveLength(0);
   });
 
+  it('replays a 5th speaker as chip E, not a wrap onto A', () => {
+    const row = (id: number, speaker: string) => ({
+      id, session_id: 1, ts_ms: id, text: `s${speaker} `, language: 'en',
+      status: 'original', speaker, is_break: 0,
+    });
+    const out = coalesceTokens([row(1, 'A'), row(2, 'B'), row(3, 'C'), row(4, 'D'), row(5, 'E')]);
+    // Five distinct speakers → five rows; a 4-letter wrap would merge the
+    // 5th into a new "A" identity.
+    expect(out.original).toHaveLength(5);
+    expect(out.original[4]!.chip).toBe('E');
+  });
+
   it('a break is consumed per column: each column splits once at the boundary', () => {
     const out = coalesceTokens([
       { id: 1, session_id: 1, ts_ms: 1, text: 'a1', language: 'en', status: 'original',    speaker: '1', is_break: 0 },
