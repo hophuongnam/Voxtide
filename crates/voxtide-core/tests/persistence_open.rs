@@ -159,6 +159,60 @@ async fn legacy_db_migrates_relative_ts_to_epoch_and_is_idempotent() {
 }
 
 #[tokio::test]
+async fn open_purges_legacy_angle_bracket_marker_rows() {
+    use voxtide_core::persistence::tokens::Tokens;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("voxtide.db");
+    {
+        // Seed via a real store so the FTS triggers index the rows, then add
+        // legacy marker rows the way pre-fix builds persisted them: ordinary
+        // tokens whose text is a Soniox control marker.
+        let store = Store::open(&db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO sessions(id, started_at, ended_at, mode, lang_a, lang_b, duration_ms) \
+             VALUES (1, 1750000000000, 1750000300000, 'meeting', 'en', 'vi', 300000)",
+        )
+        .execute(store.pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tokens(session_id, ts_ms, text, status, is_break) VALUES \
+             (1, 1750000001000, '<end>', 'original', 0), \
+             (1, 1750000002000, '<fin>', 'original', 0), \
+             (1, 1750000003000, 'real words', 'original', 0), \
+             (1, 1750000004000, '', 'none', 1)",
+        )
+        .execute(store.pool())
+        .await
+        .unwrap();
+        // Marker is FTS-findable before the purge.
+        let hits = Tokens::search_sessions(store.pool(), "end", 50)
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1, "marker must be indexed pre-purge");
+    }
+
+    // Re-open: the marker rows are purged (and de-indexed via the FTS delete
+    // trigger); real tokens and break rows survive.
+    let store = Store::open(&db).await.unwrap();
+    let texts: Vec<(String, i64)> =
+        sqlx::query_as("SELECT text, is_break FROM tokens ORDER BY ts_ms")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        texts,
+        vec![("real words".to_string(), 0), (String::new(), 1)],
+        "only marker rows may be deleted"
+    );
+    let hits = Tokens::search_sessions(store.pool(), "end", 50)
+        .await
+        .unwrap();
+    assert!(hits.is_empty(), "purged markers must leave the FTS index");
+}
+
+#[tokio::test]
 async fn fresh_store_open_ends_at_version_2_with_is_break() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("voxtide.db");

@@ -46,6 +46,9 @@ export function coalesceTokens(tokens: TokenRow[]): {
       breakTranslation = true;
       continue;
     }
+    // Belt-and-braces marker filter (same '<…>' semantics as the backend's
+    // open-time purge, which deletes these legacy rows for good). Keep for
+    // one release past v0.1.6, then drop.
     if (t.text.startsWith('<') && t.text.endsWith('>')) continue;
     const status = asStatus(t.status);
     const isTrans = status === 'translation';

@@ -34,6 +34,16 @@ impl Store {
             .await?;
         let store = Self { pool };
         store.migrate().await?;
+        // Purge Soniox control markers ('<end>', '<fin>', …) persisted as
+        // ordinary tokens by pre-v0.1.6 builds. New writes never store them
+        // (the provider strips markers on the wire), so this only ever
+        // touches legacy rows; the tokens_ad FTS trigger de-indexes each
+        // delete. GLOB '<*>' is exactly the frontend's replay filter
+        // (starts '<' AND ends '>'); break rows are excluded because their
+        // empty text can never match.
+        sqlx::query("DELETE FROM tokens WHERE is_break = 0 AND text GLOB '<*>'")
+            .execute(&store.pool)
+            .await?;
         // Repair orphan sessions left `ended_at IS NULL` by a prior
         // kill/crash/quit-while-recording. Runs before the controller exists,
         // so every NULL-ended row here is definitively stale.
