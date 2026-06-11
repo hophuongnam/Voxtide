@@ -8,6 +8,7 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, Message},
 };
 
+use crate::audio::{CHANNELS, SAMPLE_RATE_HZ};
 use crate::translation::tokens::{parse_message, ServerMessage, TranslationStatus};
 use crate::translation::{FinalToken, Mode, SessionConfig, TranslationEvent, TranslationProvider};
 use crate::{Error, Result};
@@ -15,18 +16,20 @@ use crate::{Error, Result};
 pub const SONIOX_WS: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
 pub const MODEL: &str = "stt-rt-v4";
 
-/// Bytes per millisecond of the audio we stream: pcm_s16le @ 16 kHz mono
-/// (matches `audio_format`/`sample_rate`/`num_channels` in
-/// [`build_initial_config`]) = 16000 × 2 / 1000.
-const PCM_BYTES_PER_MS: u64 = 32;
+/// Bytes per millisecond of the audio we stream: pcm_s16le (2 bytes/sample)
+/// at the pipeline's rate/channel constants = 16000 × 1 × 2 / 1000 = 32.
+const PCM_BYTES_PER_MS: u64 = (SAMPLE_RATE_HZ as u64 * CHANNELS as u64 * 2) / 1000;
 
 pub fn build_initial_config(cfg: &SessionConfig) -> Value {
     let mut base = json!({
         "api_key": cfg.api_key,
         "model": MODEL,
+        // "pcm_s16le" is Soniox's wire name for the format; the rate/channel
+        // values are the audio pipeline's own constants so the config can
+        // never desync from what the capture path actually produces.
         "audio_format": "pcm_s16le",
-        "sample_rate": 16000,
-        "num_channels": 1,
+        "sample_rate": SAMPLE_RATE_HZ,
+        "num_channels": CHANNELS,
         "enable_endpoint_detection": true,
         "enable_speaker_diarization": true,
     });

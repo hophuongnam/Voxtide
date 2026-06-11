@@ -18,6 +18,25 @@ pub fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     state.config.load().map_err(|e| e.to_string())
 }
 
+/// Static facts the status bar displays. Sourced from the core crate's real
+/// constants so the UI can never drift from what the pipeline actually does
+/// (the model string and audio format used to be hardcoded frontend literals).
+#[derive(serde::Serialize)]
+pub struct AppInfo {
+    pub model: &'static str,
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+}
+
+#[tauri::command]
+pub fn app_info() -> AppInfo {
+    AppInfo {
+        model: voxtide_core::translation::soniox::MODEL,
+        sample_rate_hz: voxtide_core::audio::SAMPLE_RATE_HZ,
+        channels: voxtide_core::audio::CHANNELS,
+    }
+}
+
 #[tauri::command]
 pub fn set_config(
     app: tauri::AppHandle,

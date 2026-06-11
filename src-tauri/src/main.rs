@@ -108,6 +108,7 @@ fn main() {
             commands::keychain::clear_api_key,
             commands::config::get_config,
             commands::config::set_config,
+            commands::config::app_info,
             commands::devices::list_mics,
             commands::devices::list_loopback_sources,
             commands::sessions::list_sessions,

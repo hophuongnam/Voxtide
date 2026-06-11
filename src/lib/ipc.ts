@@ -15,6 +15,11 @@ export const clearApiKey = (account: string) =>
 export const getConfig = () => invoke<AppConfig>('get_config');
 export const setConfig = (cfg: AppConfig) => invoke<void>('set_config', { cfg });
 
+/** Static backend facts for the status bar (model, audio format) — sourced
+ *  from voxtide-core's real constants instead of frontend literals. */
+export interface AppInfo { model: string; sample_rate_hz: number; channels: number; }
+export const appInfo = () => invoke<AppInfo>('app_info');
+
 // --- sessions / search ----------------------------------------------------
 export const listSessions = (limit = 50) =>
   invoke<SessionRow[]>('list_sessions', { limit });

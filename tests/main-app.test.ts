@@ -26,6 +26,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'list_mics') return [];
     if (cmd === 'list_loopback_sources') return [];
     if (cmd === 'delete_session') return null;
+    if (cmd === 'app_info') return { model: 'stt-rt-v4', sample_rate_hz: 16000, channels: 1 };
     return null;
   }),
 }));
@@ -640,5 +641,30 @@ describe('MainApp boot resilience', () => {
     // event still drives the UI:
     emitEvent('voxtide://event', { kind: 'session-started', session_id: 7, mode: 'meeting' });
     await findByText('Stop');
+  });
+});
+
+describe('MainApp status bar truth', () => {
+  it('renders the model reported by app_info, not a hardcoded literal', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return sampleSessions;
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      if (cmd === 'app_info') return { model: 'stt-rt-v9-future', sample_rate_hz: 16000, channels: 1 };
+      return null;
+    });
+    const { container, findByText } = render(MainApp);
+    // The status bar shows whatever the backend reports (single source of
+    // truth: voxtide_core::translation::soniox::MODEL), so a model bump can
+    // never leave the UI lying.
+    await findByText(/stt-rt-v9-future/);
+    expect(container.textContent ?? '').not.toContain('stt-rt-v4');
   });
 });

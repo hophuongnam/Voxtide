@@ -16,7 +16,7 @@
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { relaunch } from '@tauri-apps/plugin-process';
   import {
-    deleteSession,
+    appInfo as fetchAppInfo, deleteSession,
     getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
     onCoreEvent, onOverlayVisibility, searchTranscripts, startSession, stopSession,
     showOverlay, hideOverlay,
@@ -25,7 +25,7 @@
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
   import { langByCode } from '../lib/languages';
   import type { TranscriptLine } from '../types';
-  import type { CoreEvent, DeviceEntry } from '../lib/ipc';
+  import type { AppInfo, CoreEvent, DeviceEntry } from '../lib/ipc';
   import type { AppConfig, FontSize, Mode, SessionRow, StartError } from '../types';
 
   let mode = $state<Mode>('meeting');
@@ -36,6 +36,9 @@
   let overlayShown = $state(false);
   let elapsedMs = $state(0);
   let mainWidth = $state(920);
+  // Backend-reported model/format facts; null until the boot fetch lands
+  // (the status bar shows an em-dash placeholder, never a stale literal).
+  let backendInfo = $state<AppInfo | null>(null);
   let selectedSource = $state<DeviceEntry | null>(null);
   let permissionKind = $state<'mic' | 'audio-capture' | null>(null);
   // Plain, dismissible error strip for failures that aren't a permission prompt:
@@ -251,6 +254,12 @@
             .catch((e) => console.debug('updater check failed', e));
         }
 
+        // Cosmetic status-bar facts — fire-and-forget so a failure can't
+        // block boot or surface as a startup error.
+        void fetchAppInfo()
+          .then((info) => { backendInfo = info; })
+          .catch((e) => console.debug('app_info failed', e));
+
         const cfg = await getConfig();
         config.setConfig(cfg);
         mode = cfg.mode;
@@ -386,6 +395,11 @@
 
   const summary = $derived(mode === 'meeting'
     ? `one_way → ${langB.code}` : `two_way · ${langA.code} ⇄ ${langB.code}`);
+  // "s16le" is the one display literal kept frontend-side (it names the wire
+  // format, pcm_s16le); rate and channel count come from the backend.
+  const audioFormat = $derived(backendInfo
+    ? `${backendInfo.sample_rate_hz / 1000} kHz · ${backendInfo.channels === 1 ? 'mono' : `${backendInfo.channels} ch`} · s16le`
+    : '—');
 </script>
 
 <VoxWindow>
@@ -478,8 +492,8 @@
         latencyMs={session.latencyMs}
         {mode}
         translationSummary={summary}
-        model="stt-rt-v4"
-        audioFormat="16 kHz · mono · s16le"
+        model={backendInfo?.model ?? '—'}
+        audioFormat={audioFormat}
         version={__APP_VERSION__}
         width={mainWidth - 240} />
     </div>
