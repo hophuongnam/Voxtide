@@ -11,9 +11,6 @@ pub enum Error {
     #[error("persistence: {0}")]
     Persistence(#[from] sqlx::Error),
 
-    #[error("migration: {0}")]
-    Migration(#[from] sqlx::migrate::MigrateError),
-
     #[error("keychain: {0}")]
     Keychain(String),
 
@@ -28,9 +25,6 @@ pub enum Error {
 
     #[error("websocket: {0}")]
     WebSocket(Box<tokio_tungstenite::tungstenite::Error>),
-
-    #[error("invalid url: {0}")]
-    Url(#[from] url::ParseError),
 
     #[error("session: {0}")]
     Session(String),

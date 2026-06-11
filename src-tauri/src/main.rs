@@ -33,7 +33,6 @@ fn main() {
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // Auto-persist main window size + position to ~/Library/Application Support/Voxtide/.window-state.
