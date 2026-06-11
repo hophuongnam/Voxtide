@@ -7,11 +7,11 @@
 //! path (macOS 14.4+) without changing callers.
 
 use parking_lot::Mutex;
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
-use crate::audio::resampler::{f32_to_i16, Resampler, ResamplerSpec};
-use crate::audio::{channel, AudioFrame, AudioSource, AudioStream, Chunker, SourceKind};
+use crate::audio::cpal_pipeline::CapturePipeline;
+use crate::audio::resampler::{Resampler, ResamplerSpec};
+use crate::audio::{channel, AudioSource, AudioStream, SourceKind, INIT_TIMEOUT};
 use crate::{Error, Result};
 
 // ─── Strategy selector ───────────────────────────────────────────────────────
@@ -101,10 +101,23 @@ mod sckit {
     // ── Output handler ────────────────────────────────────────────────────────
 
     struct OutputHandler {
-        tx: mpsc::Sender<AudioFrame>,
-        resampler: Arc<Mutex<Resampler>>,
-        chunker: Arc<Mutex<Chunker>>,
+        /// All mutable per-callback state behind ONE lock: SCKit calls
+        /// `did_output_sample_buffer` with `&self` from its own delivery
+        /// queue (the sole locker), so this never contends in steady state.
+        inner: Mutex<HandlerInner>,
         warned_channels: std::sync::atomic::AtomicBool,
+    }
+
+    /// Per-callback scratch + the shared sample pipeline, all preallocated
+    /// and reused — the delivery queue is a real-time-ish context, and the
+    /// old per-callback `Vec` collects (one per planar buffer, plus the
+    /// interleave output) allocated on every 20 ms callback.
+    struct HandlerInner {
+        /// Per-channel planar scratch; inner Vecs are reused across callbacks.
+        planar: Vec<Vec<f32>>,
+        /// Interleave / mono-duplicate output scratch.
+        interleaved: Vec<f32>,
+        pipeline: CapturePipeline,
     }
 
     impl SCStreamOutputTrait for OutputHandler {
@@ -127,63 +140,65 @@ mod sckit {
                 }
             };
 
+            let mut guard = self.inner.lock();
+            // Reborrow as &mut so field-disjoint borrows (planar vs pipeline
+            // vs interleaved) split cleanly below.
+            let inner = &mut *guard;
+
             // SCKit delivers planar (non-interleaved) f32: one buffer per channel.
-            // Collect each buffer independently, then interleave before handing
-            // off to the source_channels:2 resampler.
-            let mut channels: Vec<Vec<f32>> = Vec::with_capacity(2);
-            let mut channel_counts: Vec<u32> = Vec::with_capacity(2);
+            // Collect each buffer into its reusable scratch slot, then interleave
+            // before handing off to the source_channels:2 resampler.
+            let mut used = 0usize;
+            let mut first_channels = 0u32;
             for buf in audio_buf_list.buffers() {
-                let n_ch = buf.number_channels;
+                if inner.planar.len() <= used {
+                    inner.planar.push(Vec::new());
+                }
+                let dst = &mut inner.planar[used];
+                dst.clear();
                 let bytes = buf.data();
                 // Each sample is 4 bytes (f32, host native byte order).
-                let samples: Vec<f32> = bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
-                    .collect();
-                channels.push(samples);
-                channel_counts.push(n_ch);
+                dst.reserve(bytes.len() / 4);
+                dst.extend(
+                    bytes
+                        .chunks_exact(4)
+                        .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])),
+                );
+                if used == 0 {
+                    first_channels = buf.number_channels;
+                }
+                used += 1;
             }
 
-            let f32s = match channels.len() {
-                0 => return,
-                1 => {
-                    if channel_counts[0] >= 2 {
-                        // Already interleaved stereo (or more) in one buffer — use directly.
-                        channels.remove(0)
-                    } else {
-                        // Mono — duplicate to stereo.
-                        channels[0].iter().flat_map(|s| [*s, *s]).collect()
-                    }
+            match used {
+                0 => {}
+                1 if first_channels >= 2 => {
+                    // Already interleaved stereo (or more) in one buffer — push directly.
+                    inner.pipeline.push_f32(&inner.planar[0]);
                 }
-                2 => crate::audio::planar_to_interleaved(&channels),
+                1 => {
+                    // Mono — duplicate to stereo into the interleave scratch.
+                    inner.interleaved.clear();
+                    inner.interleaved.reserve(inner.planar[0].len() * 2);
+                    for s in &inner.planar[0] {
+                        inner.interleaved.push(*s);
+                        inner.interleaved.push(*s);
+                    }
+                    inner.pipeline.push_f32(&inner.interleaved);
+                }
                 n => {
-                    if !self
-                        .warned_channels
-                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    if n > 2
+                        && !self
+                            .warned_channels
+                            .swap(true, std::sync::atomic::Ordering::Relaxed)
                     {
                         tracing::warn!(n, "sckit: unexpected buffer count; interleaving anyway");
                     }
-                    crate::audio::planar_to_interleaved(&channels)
-                }
-            };
-
-            if f32s.is_empty() {
-                return;
-            }
-
-            let processed = match self.resampler.lock().process(&f32s) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(?e, "sckit resample error");
-                    return;
-                }
-            };
-
-            let i16s: Vec<i16> = processed.into_iter().map(f32_to_i16).collect();
-            let frames: Vec<AudioFrame> = self.chunker.lock().push(&i16s).collect();
-            for frame in frames {
-                if self.tx.try_send(frame).is_err() {
-                    tracing::warn!("sckit backpressure: dropping frame");
+                    crate::audio::planar_to_interleaved_into(
+                        &inner.planar[..used],
+                        &mut inner.interleaved,
+                    );
+                    inner.pipeline.push_f32(&inner.interleaved);
                 }
             }
         }
@@ -246,9 +261,11 @@ mod sckit {
 
                 // ── Assemble stream ──────────────────────────────────────────
                 let handler = OutputHandler {
-                    tx,
-                    resampler: Arc::new(Mutex::new(resampler)),
-                    chunker: Arc::new(Mutex::new(Chunker::new())),
+                    inner: Mutex::new(HandlerInner {
+                        planar: Vec::new(),
+                        interleaved: Vec::new(),
+                        pipeline: CapturePipeline::new(resampler, tx, "sckit"),
+                    }),
                     warned_channels: std::sync::atomic::AtomicBool::new(false),
                 };
 
@@ -298,12 +315,15 @@ mod sckit {
         // cannot clear. On timeout, signal the capture thread to halt by dropping the stop sender
         // (it wakes the thread's `block_on(stop_rx)` once it reaches that point so it does not
         // linger holding the capture) and surface a timeout error.
-        match init_rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        match init_rx.recv_timeout(INIT_TIMEOUT) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 drop(stop_tx);
-                return Err(Error::Audio("sckit audio init timed out".into()));
+                return Err(Error::Audio(format!(
+                    "sckit audio init timed out ({}s)",
+                    INIT_TIMEOUT.as_secs()
+                )));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(Error::Audio(

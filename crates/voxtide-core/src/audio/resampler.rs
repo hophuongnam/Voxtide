@@ -64,11 +64,26 @@ impl Resampler {
 
     /// Process interleaved samples in `[-1.0, 1.0]`. Returns mono @ 16 kHz f32.
     ///
+    /// Allocating convenience wrapper over [`Resampler::process_into`] for
+    /// callers off the audio hot path (WAV mock, tests).
+    pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>> {
+        let mut out = Vec::new();
+        self.process_into(interleaved, &mut out)?;
+        Ok(out)
+    }
+
+    /// Process interleaved samples in `[-1.0, 1.0]` into `out` (cleared first).
+    ///
     /// `mono_buf` is a persistent carry buffer: new samples are appended each call,
     /// whole rubato chunks are consumed from the front, and any sub-chunk remainder
     /// is retained for the next call. This ensures no samples are lost regardless
     /// of device callback size (assumes whole interleaved frames per callback).
-    pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>> {
+    ///
+    /// Takes the output buffer by `&mut` so real-time capture callbacks can
+    /// reuse one scratch allocation across calls instead of allocating a fresh
+    /// `Vec` per device period.
+    pub fn process_into(&mut self, interleaved: &[f32], out: &mut Vec<f32>) -> Result<()> {
+        out.clear();
         let ch = self.spec.source_channels as usize;
         self.mono_buf.reserve(interleaved.len() / ch);
         for frame in interleaved.chunks_exact(ch) {
@@ -77,12 +92,14 @@ impl Resampler {
         }
 
         let Some(r) = self.inner.as_mut() else {
-            // Passthrough: drain everything and return it.
-            return Ok(std::mem::take(&mut self.mono_buf));
+            // Passthrough: drain everything into the output.
+            out.extend_from_slice(&self.mono_buf);
+            self.mono_buf.clear();
+            return Ok(());
         };
         let ratio = SAMPLE_RATE_HZ as f64 / self.spec.source_hz as f64;
         let estimated_out = (self.mono_buf.len() as f64 * ratio).ceil() as usize + 16;
-        let mut out = Vec::with_capacity(estimated_out);
+        out.reserve(estimated_out);
         let mut consumed = 0usize;
         while self.mono_buf.len() - consumed >= r.input_frames_next() {
             let chunk = r.input_frames_next();
@@ -99,7 +116,7 @@ impl Resampler {
         }
         // Retain sub-chunk tail in mono_buf for the next call.
         self.mono_buf.drain(..consumed);
-        Ok(out)
+        Ok(())
     }
 }
 

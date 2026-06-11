@@ -1,5 +1,6 @@
 //! Audio capture abstraction. Output is always 16 kHz mono s16le PCM in 1600-sample (100 ms) chunks.
 
+pub mod cpal_pipeline;
 pub mod mock;
 pub mod resampler;
 
@@ -17,6 +18,12 @@ pub const SAMPLE_RATE_HZ: u32 = 16_000;
 pub const CHANNELS: u16 = 1;
 pub const CHUNK_MS: u32 = 100;
 pub const CHUNK_SAMPLES: usize = (SAMPLE_RATE_HZ as usize * CHUNK_MS as usize) / 1000;
+
+/// How long a source's `start()` waits for its capture thread to signal init
+/// success before giving up (TCC permission dialog, HAL/SCKit wedge). Shared
+/// by every capture backend so the timeout — and the "(Ns)" in the error
+/// message — can never drift between them.
+pub(crate) const INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
@@ -82,15 +89,25 @@ pub fn channel() -> (mpsc::Sender<AudioFrame>, mpsc::Receiver<AudioFrame>) {
 /// A single buffer is returned as-is (already interleaved or mono).
 /// Uneven channel lengths truncate to the shortest.
 pub fn planar_to_interleaved(channels: &[Vec<f32>]) -> Vec<f32> {
+    let mut out = Vec::new();
+    planar_to_interleaved_into(channels, &mut out);
+    out
+}
+
+/// [`planar_to_interleaved`] into a caller-owned buffer (cleared first), so
+/// real-time capture callbacks can reuse one scratch allocation per callback
+/// instead of allocating a fresh `Vec` each time.
+pub fn planar_to_interleaved_into(channels: &[Vec<f32>], out: &mut Vec<f32>) {
+    out.clear();
     if channels.len() == 1 {
-        return channels[0].clone();
+        out.extend_from_slice(&channels[0]);
+        return;
     }
     let frames = channels.iter().map(|c| c.len()).min().unwrap_or(0);
-    let mut out = Vec::with_capacity(frames * channels.len());
+    out.reserve(frames * channels.len());
     for i in 0..frames {
         for ch in channels {
             out.push(ch[i]);
         }
     }
-    out
 }

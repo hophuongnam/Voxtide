@@ -1,8 +1,7 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use tokio::sync::{mpsc, oneshot};
+use cpal::traits::{DeviceTrait, HostTrait};
 
-use crate::audio::resampler::{f32_to_i16, Resampler, ResamplerSpec};
-use crate::audio::{channel, AudioFrame, AudioSource, AudioStream, Chunker, SourceKind};
+use crate::audio::cpal_pipeline::{start_capture, CpalCaptureSpec};
+use crate::audio::{AudioSource, AudioStream, SourceKind};
 use crate::{Error, Result};
 
 // ─── Device listing ──────────────────────────────────────────────────────────
@@ -57,8 +56,6 @@ impl MicSource {
     }
 }
 
-// ─── Internal helpers ────────────────────────────────────────────────────────
-
 fn pick_device(host: &cpal::Host, want_id: Option<&str>) -> Result<cpal::Device> {
     if let Some(id) = want_id {
         for d in host
@@ -75,230 +72,20 @@ fn pick_device(host: &cpal::Host, want_id: Option<&str>) -> Result<cpal::Device>
         .ok_or_else(|| Error::Audio("no default input device".into()))
 }
 
-/// Convert a &[f32] slice into AudioFrames and push them onto the channel.
-fn push_f32_samples(
-    samples: &[f32],
-    resampler: &mut Resampler,
-    chunker: &mut Chunker,
-    tx: &mpsc::Sender<AudioFrame>,
-) {
-    let processed = match resampler.process(samples) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(?e, "mic resample");
-            return;
-        }
-    };
-    let i16s: Vec<i16> = processed.into_iter().map(f32_to_i16).collect();
-    let frames: Vec<AudioFrame> = chunker.push(&i16s).collect();
-    for f in frames {
-        if tx.try_send(f).is_err() {
-            tracing::warn!("mic backpressure: dropping frame");
-        }
-    }
-}
-
-// ─── AudioSource impl ────────────────────────────────────────────────────────
-
 impl AudioSource for MicSource {
     fn start(&self) -> Result<AudioStream> {
-        let (tx, rx) = channel();
-        let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
-
-        // Synchronous init-error channel: the spawned thread sends Ok(()) once
-        // the stream is playing, or Err(...) if setup fails.
-        let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<()>>(1);
-
         let device_id = self.device_id.clone();
-        let thread_label = self.label.clone();
-
-        std::thread::Builder::new()
-            .name(format!("mic-{}", thread_label))
-            .spawn(move || {
-                // Everything cpal-related lives entirely on this thread so that
-                // the !Send cpal::Stream never crosses a thread boundary.
-
-                let host = cpal::default_host();
-                let device = match pick_device(&host, device_id.as_deref()) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        let _ = init_tx.send(Err(e));
-                        return;
-                    }
-                };
-
-                let supported_config = match device.default_input_config() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let _ = init_tx
-                            .send(Err(Error::Audio(format!("cpal default_input_config: {e}"))));
-                        return;
-                    }
-                };
-
-                let sample_rate = supported_config.sample_rate().0;
-                let channels = supported_config.channels();
-                let sample_format = supported_config.sample_format();
-                // Convert to StreamConfig before the match so `config` isn't
-                // consumed inside multiple match arms.
-                let stream_config: cpal::StreamConfig = supported_config.into();
-
-                let resampler = match Resampler::new(ResamplerSpec {
-                    source_hz: sample_rate,
-                    source_channels: channels,
-                }) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let _ = init_tx.send(Err(e));
-                        return;
-                    }
-                };
-                let chunker = Chunker::new();
-
-                // Stream-error signal: cpal invokes the error callback when the
-                // device is lost (unplugged, default-device switch, HAL reset).
-                // The callback fires `err_tx`; the capture thread's wait loop
-                // below wakes on it and drops the stream, which closes the frame
-                // channel so the session worker can finalize instead of idling
-                // forever on a now-dead device.
-                let (err_tx, err_rx) = std::sync::mpsc::channel::<()>();
-
-                // Macro-like helper to reduce repetition per sample format arm.
-                // `resampler` and `chunker` are moved into the closure; the macro
-                // expands exactly once per match arm, so each arm gets sole ownership.
-                macro_rules! build_stream {
-                    ($sample_ty:ty, $to_f32:expr) => {{
-                        let tx_cb = tx.clone();
-                        let mut r_cb = resampler;
-                        let mut c_cb = chunker;
-                        let err_tx_cb = err_tx.clone();
-                        device
-                            .build_input_stream(
-                                &stream_config,
-                                move |data: &[$sample_ty], _| {
-                                    let f32s: Vec<f32> = data.iter().map($to_f32).collect();
-                                    push_f32_samples(&f32s, &mut r_cb, &mut c_cb, &tx_cb);
-                                },
-                                move |e| {
-                                    tracing::error!(?e, "cpal stream error");
-                                    let _ = err_tx_cb.send(());
-                                },
-                                None,
-                            )
-                            .map_err(|e| Error::Audio(format!("cpal build_input_stream: {e}")))
-                    }};
-                }
-
-                let stream_result: Result<cpal::Stream> = match sample_format {
-                    cpal::SampleFormat::F32 => build_stream!(f32, |&s| s),
-                    cpal::SampleFormat::F64 => {
-                        build_stream!(f64, |&s| s as f32)
-                    }
-                    cpal::SampleFormat::I8 => {
-                        build_stream!(i8, |&s| s as f32 / i8::MAX as f32)
-                    }
-                    cpal::SampleFormat::I16 => {
-                        build_stream!(i16, |&s| s as f32 / i16::MAX as f32)
-                    }
-                    cpal::SampleFormat::I32 => {
-                        build_stream!(i32, |&s| s as f32 / i32::MAX as f32)
-                    }
-                    cpal::SampleFormat::I64 => {
-                        build_stream!(i64, |&s| s as f32 / i64::MAX as f32)
-                    }
-                    cpal::SampleFormat::U8 => {
-                        build_stream!(u8, |&s| (s as f32 - 128.0) / 128.0)
-                    }
-                    cpal::SampleFormat::U16 => {
-                        build_stream!(u16, |&s| (s as f32 - 32768.0) / 32768.0)
-                    }
-                    cpal::SampleFormat::U32 => {
-                        build_stream!(u32, |&s| {
-                            (s as f64 - 2_147_483_648.0_f64) as f32 / 2_147_483_648.0_f32
-                        })
-                    }
-                    cpal::SampleFormat::U64 => {
-                        build_stream!(u64, |&s| {
-                            (s as f64 / u64::MAX as f64 * 2.0 - 1.0) as f32
-                        })
-                    }
-                    other => Err(Error::Audio(format!(
-                        "unsupported sample format: {other:?}"
-                    ))),
-                };
-
-                let stream = match stream_result {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let _ = init_tx.send(Err(e));
-                        return;
-                    }
-                };
-
-                if let Err(e) = stream.play() {
-                    let _ = init_tx.send(Err(Error::Audio(format!("cpal play: {e}"))));
-                    return;
-                }
-
-                // Signal the parent thread that init succeeded.
-                let _ = init_tx.send(Ok(()));
-
-                // Wait for an explicit stop OR a stream error, whichever comes
-                // first. `stop_rx` is a tokio oneshot but we only ever poll it
-                // synchronously here (no runtime needed): a short `err_rx` timeout
-                // bounds how long a `try_recv` of the stop signal is delayed.
-                //
-                // - err_rx Ok      → the device was lost (callback fired). Break,
-                //   drop the stream, close the frame channel; the worker finalizes.
-                // - err_rx Disconnected → every error-tx clone dropped (cannot
-                //   happen while the stream lives, since its callback holds one):
-                //   treat as terminal and break.
-                // - stop_rx Ok/Closed → explicit stop, or the stop sender was
-                //   dropped (T4's init-timeout path drops it). Break.
-                // - stop_rx Empty   → neither yet; keep waiting.
-                loop {
-                    match err_rx.recv_timeout(std::time::Duration::from_millis(200)) {
-                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            match stop_rx.try_recv() {
-                                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
-                                _ => break,
-                            }
-                        }
-                    }
-                }
-
-                // Dropping `stream` here stops the capture and drops the data
-                // callback's `tx` clone. The original `tx` in this thread scope
-                // drops when the closure returns just below, so once both are gone
-                // the frame channel closes and the session worker's audio arm sees
-                // `None`.
-                drop(stream);
-            })
-            .map_err(|e| Error::Audio(format!("mic thread spawn: {e}")))?;
-
-        // Wait for the spawned thread to confirm init succeeded or failed, but never block
-        // start() indefinitely: a wedged init (TCC dialog, HAL wedge) would otherwise park the
-        // calling tokio worker forever and leave the controller's slot stuck Pending, which
-        // stop() cannot clear. On timeout, signal the capture thread to halt by dropping the stop
-        // sender (its wait loop's `stop_rx.try_recv()` then returns `Closed` and breaks once it
-        // reaches that point, so it does not linger holding the device) and surface a timeout
-        // error.
-        match init_rx.recv_timeout(std::time::Duration::from_secs(10)) {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                drop(stop_tx);
-                return Err(Error::Audio("mic audio init timed out".into()));
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(Error::Audio(
-                    "mic thread terminated before signalling init".into(),
-                ))
-            }
-        }
-
-        Ok(AudioStream { rx, stop: stop_tx })
+        start_capture(CpalCaptureSpec {
+            thread_name: format!("mic-{}", self.label),
+            label: "mic",
+            open: Box::new(move |host| {
+                let device = pick_device(host, device_id.as_deref())?;
+                let config = device
+                    .default_input_config()
+                    .map_err(|e| Error::Audio(format!("cpal default_input_config: {e}")))?;
+                Ok((device, config))
+            }),
+        })
     }
 
     fn label(&self) -> &str {
