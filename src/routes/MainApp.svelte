@@ -23,7 +23,7 @@
   } from '../lib/ipc';
   import ConfirmDeleteSheet from '../components/sidebar/ConfirmDeleteSheet.svelte';
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
-  import { LANG_NAMES } from '../lib/languages';
+  import { langByCode } from '../lib/languages';
   import type { TranscriptLine } from '../types';
   import type { CoreEvent, DeviceEntry } from '../lib/ipc';
   import type { AppConfig, FontSize, Mode, SessionRow, StartError } from '../types';
@@ -45,6 +45,9 @@
 
   // Past-session viewer. null = follow live capture; otherwise show pastOriginal/pastTranslation.
   let viewingId = $state<number | null>(null);
+  // The stored row of the session being viewed: its OWN mode/languages label
+  // the pane (the current config may have changed since it was recorded).
+  let viewingSession = $state<SessionRow | null>(null);
   let pastOriginal = $state<TranscriptLine[]>([]);
   let pastTranslation = $state<TranscriptLine[]>([]);
 
@@ -110,6 +113,7 @@
       searchHits = searchHits.filter(s => s.id !== target.id);
       if (viewingId === target.id) {
         viewingId = null;
+        viewingSession = null;
         pastOriginal = [];
         pastTranslation = [];
       }
@@ -129,10 +133,11 @@
       return;
     }
     try {
-      const { tokens } = await getSession(id);
+      const { session: row, tokens } = await getSession(id);
       const { original, translation } = coalesceTokens(tokens);
       pastOriginal = original;
       pastTranslation = translation;
+      viewingSession = row;
       viewingId = id;
     } catch (e) {
       console.error('getSession failed', e);
@@ -140,14 +145,12 @@
   }
 
   function onReturnToLive() {
-    viewingId = null;
+    viewingId = null; viewingSession = null;
     pastOriginal = []; pastTranslation = [];
   }
 
-  const langA = $derived({ code: (config.config?.language_a ?? 'en').toUpperCase(),
-                           name: LANG_NAMES[config.config?.language_a ?? 'en'] ?? '' });
-  const langB = $derived({ code: (config.config?.language_b ?? 'vi').toUpperCase(),
-                           name: LANG_NAMES[config.config?.language_b ?? 'vi'] ?? '' });
+  const langA = $derived(langByCode(config.config?.language_a ?? 'en'));
+  const langB = $derived(langByCode(config.config?.language_b ?? 'vi'));
   const fontSize: FontSize = $derived(config.config?.font_size ?? 'm');
   const showPinyin: boolean = $derived(config.config?.show_pinyin ?? false);
 
@@ -178,7 +181,7 @@
       case 'session-started':
         session.start(ev.session_id, Date.now());
         // Snap to live view when a new capture starts so the user sees what they just initiated.
-        viewingId = null; pastOriginal = []; pastTranslation = [];
+        viewingId = null; viewingSession = null; pastOriginal = []; pastTranslation = [];
         break;
       case 'session-stopped': session.stop(); listSessions().then(v => sessions = v); break;
       case 'transcript-live':
@@ -412,7 +415,9 @@
           </button>
         {/if}
         <TranscriptPane
-          {mode} a={langA} b={langB}
+          mode={(viewingSession?.mode as Mode) ?? mode}
+          a={viewingSession ? langByCode(viewingSession.lang_a) : langA}
+          b={viewingSession ? langByCode(viewingSession.lang_b) : langB}
           original={pastOriginal}
           translation={pastTranslation}
           liveOriginal=""

@@ -412,6 +412,51 @@ describe('MainApp language swap', () => {
   });
 });
 
+describe('MainApp past-session labels', () => {
+  it('past viewer renders the stored session languages and mode, not the current config', async () => {
+    const pastSession = {
+      id: 42, started_at: Date.now() - 120_000, ended_at: Date.now() - 60_000,
+      mode: 'meeting', lang_a: 'zh', lang_b: 'en', device_label: null,
+      duration_ms: 60_000,
+    };
+    const token = {
+      id: 1, session_id: 42, ts_ms: 1, text: 'hello', language: 'en',
+      status: 'original', speaker: null, is_break: 0,
+    };
+
+    invokeMock.mockClear();
+    (invokeMock as any).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        // Current config deliberately DIFFERS from the stored session:
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'conversation', font_size: 'm', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [pastSession];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      if (cmd === 'get_session') return { session: pastSession, tokens: [token] };
+      return null;
+    });
+
+    const { transcript } = await import('../src/lib/stores.svelte');
+    transcript.reset();
+
+    const { container, findByText, queryByText } = render(MainApp);
+    await waitFor(() => {
+      expect(container.querySelectorAll('button[data-active]').length).toBeGreaterThan(0);
+    });
+    await fireEvent.click(container.querySelector('button[data-active]') as HTMLElement);
+
+    // The stored row says zh→en MEETING; the meeting-mode pane header is
+    // "ZH · multi-speaker". With the bug, the current en→vi conversation
+    // config rendered the "EN/VI" conversation header instead.
+    await findByText('ZH · multi-speaker');
+    expect(queryByText('EN/VI')).toBeNull();
+  });
+});
+
 describe('MainApp boot resilience', () => {
   afterEach(async () => {
     const { session, transcript } = await import('../src/lib/stores.svelte');
