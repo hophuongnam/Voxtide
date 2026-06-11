@@ -77,10 +77,10 @@ grep -q "^version = \"${VERSION}\"$" src-tauri/Cargo.toml || die "version bump f
 sed -i '' -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+([-A-Za-z0-9.]*)?\"$/version = \"${VERSION}\"/" crates/voxtide-core/Cargo.toml
 grep -q "^version = \"${VERSION}\"$" crates/voxtide-core/Cargo.toml || die "version bump failed in crates/voxtide-core/Cargo.toml"
 
-blue "refreshing Cargo.lock (gitignored, local only — keeps the upcoming build in sync)…"
+blue "refreshing Cargo.lock (tracked — CI builds from the exact same dependency graph)…"
 cargo check -p voxtide -p voxtide-core --quiet
 
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "v${VERSION}"
 green "✓ committed + tagged v${VERSION}"
@@ -145,28 +145,47 @@ Local state:
             $SIG
             $LATEST_JSON
 
-About to:
-  1. git push origin main v${VERSION}
-  2. gh release create v${VERSION} --title "v${VERSION}" --notes-file <notes>
-     attaching: DMG, .tar.gz, .sig, latest.json
+About to (draft-first — the fleet never sees a half-built release):
+  1. git push origin main                       (commit only, no tag yet)
+  2. gh release create v${VERSION} --draft      (no tag ref, no CI, invisible to updaters)
+  3. gh release upload                          (DMG, .tar.gz, .sig, mac-only latest.json)
+  4. git push origin v${VERSION}                (tag push fires CI: Windows builds upload
+                                                 to the SAME draft; finalize-manifest merges
+                                                 windows into latest.json, then publishes)
+
+If anything fails before step 4, the draft sits unpublished and
+releases/latest keeps serving the previous version — no 404 window.
 
 EOF
 read -r -p "Proceed? [y/N] " ans
 [[ "$ans" == "y" || "$ans" == "Y" ]] || die "aborted by user (local commit + tag preserved)"
 
-# ── Push + release ────────────────────────────────────────────────────────────
-step "Pushing to origin"
-git push origin main "v${VERSION}"
+# ── Push + draft release ──────────────────────────────────────────────────────
+step "Pushing main (commit only)"
+git push origin main
 
-step "Creating GitHub release"
+step "Creating DRAFT GitHub release"
+# A draft release does NOT create the tag ref (GitHub creates it on publish),
+# so CI cannot fire yet and the `releases/latest` endpoints are untouched.
+# --target pins the commit the publish-time tag would point at; the tag we
+# push in the next step is the authoritative ref and matches the same commit.
 NOTES_TMP="$(mktemp)"
 printf '%s' "$NOTES" > "$NOTES_TMP"
 gh release create "v${VERSION}" \
+  --draft \
+  --target "$(git rev-parse HEAD)" \
   --title "v${VERSION}" \
-  --notes-file "$NOTES_TMP" \
-  "$DMG" "$TARBALL" "$SIG" "$LATEST_JSON"
+  --notes-file "$NOTES_TMP"
 rm -f "$NOTES_TMP"
 
+step "Uploading macOS assets to the draft"
+gh release upload "v${VERSION}" "$DMG" "$TARBALL" "$SIG" "$LATEST_JSON"
+
+step "Pushing tag (fires CI: Windows builds → finalize → publish)"
+git push origin "v${VERSION}"
+
 green ""
-green "✓ released v${VERSION}"
+green "✓ draft v${VERSION} created with macOS assets; tag pushed."
+blue  "CI now builds Windows, merges latest.json, and publishes the release."
+blue  "Watch it: gh run watch --repo ${REPO_URL#https://github.com/} || open ${REPO_URL}/actions"
 gh release view "v${VERSION}" --web 2>/dev/null || gh release view "v${VERSION}"

@@ -19,9 +19,11 @@ permissions:
 
 jobs:
   # macOS distribution is handled by `scripts/release.sh` running locally on the
-  # release author's machine — universal DMG + updater tarball + .sig + latest.json
-  # are uploaded directly to the GitHub release before this workflow even fires.
-  # CI's job is to add Windows MSIs (which release.sh can't cross-build).
+  # release author's machine — universal DMG + updater tarball + .sig + a mac-only
+  # latest.json are uploaded to a DRAFT release before the tag is pushed (so this
+  # workflow fires only once everything mac-side is already in place). CI's job is
+  # to add the Windows builds, complete latest.json, and PUBLISH the draft — the
+  # fleet-facing `releases/latest` endpoints never see a half-built release.
   build:
     strategy:
       fail-fast: false
@@ -66,6 +68,11 @@ jobs:
         with:
           # Same dual-source as checkout: tag-name from input (dispatch) or github.ref_name (push).
           tag_name: ${{ inputs.tag || github.ref_name }}
+          # The release already exists as a DRAFT (created by release.sh with the
+          # mac assets). draft: true is load-bearing: without it this step would
+          # PUBLISH the release while latest.json still lacks the Windows
+          # platforms — finalize-manifest below is the only place that un-drafts.
+          draft: true
           # Tauri 2 NSIS output is named `<productName>_<version>_<arch>-setup.exe`,
           # plus a parallel `.sig` file when createUpdaterArtifacts is on. The MSI
           # ships as the manual installer; the .exe + .sig is what the updater consumes.
@@ -117,3 +124,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.t.outputs.tag }}
         run: gh release upload "$TAG" latest.json --clobber -R ${{ github.repository }}
+
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.t.outputs.tag }}
+        # The single point where the release goes live: every asset (mac + win)
+        # and the completed latest.json are already attached, so the
+        # `releases/latest/download/latest.json` endpoint can never 404 or
+        # serve a manifest missing platforms. Publishing an existing-tag draft
+        # creates no new tag ref, so this cannot re-trigger the workflow.
+        run: gh release edit "$TAG" --draft=false --latest -R ${{ github.repository }}

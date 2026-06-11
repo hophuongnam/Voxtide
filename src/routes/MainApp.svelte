@@ -213,6 +213,24 @@
     }
   }
 
+  // Silent update check. Skipped outside the Tauri runtime (vitest, vite
+  // preview). Fire-and-forget so a slow CDN can't delay anything; errors
+  // (offline, no manifest yet, bad signature) stay in the console — never
+  // block the app or surface a banner unless there's an update.
+  // `minIntervalMs` rate-limits opportunistic call sites (window focus).
+  let lastUpdateCheck = 0;
+  function checkForUpdate(minIntervalMs = 0) {
+    if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
+    const now = Date.now();
+    if (now - lastUpdateCheck < minIntervalMs) return;
+    lastUpdateCheck = now;
+    void check()
+      .then((update) => {
+        if (update && !updateDismissed) pendingUpdate = update;
+      })
+      .catch((e) => console.debug('updater check failed', e));
+  }
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     let unHotkey: (() => void) | undefined;
@@ -225,6 +243,13 @@
     const tick = setInterval(() => {
       if (session.recording && session.startedAt) elapsedMs = Date.now() - session.startedAt;
     }, 250);
+    // The process can live for weeks under close-to-hide, so one boot-time
+    // check is not enough: re-check every 6 h, plus on window focus (the
+    // moment the user comes back is when an update prompt is actually seen)
+    // rate-limited to hourly.
+    const updateTick = setInterval(() => checkForUpdate(), 6 * 60 * 60 * 1000);
+    const onFocus = () => checkForUpdate(60 * 60 * 1000);
+    window.addEventListener('focus', onFocus);
 
     (async () => {
       try {
@@ -242,17 +267,7 @@
         // drifts out of sync with the actual window state.
         unOverlay = await onOverlayVisibility((visible) => { overlayShown = visible; });
 
-        // Silent update check. Skipped outside the Tauri runtime (vitest, vite
-        // preview). Fire-and-forget so a slow CDN can't delay config load;
-        // errors (offline, no manifest yet, bad signature) stay in the console
-        // — never block the app or surface a banner unless there's an update.
-        if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-          void check()
-            .then((update) => {
-              if (update && !updateDismissed) pendingUpdate = update;
-            })
-            .catch((e) => console.debug('updater check failed', e));
-        }
+        checkForUpdate();
 
         // Cosmetic status-bar facts — fire-and-forget so a failure can't
         // block boot or surface as a startup error.
@@ -272,7 +287,12 @@
       }
     })();
 
-    return () => { unlisten?.(); unHotkey?.(); unOverlay?.(); ro.disconnect(); clearInterval(tick); clearTimeout(searchTimer); };
+    return () => {
+      unlisten?.(); unHotkey?.(); unOverlay?.(); ro.disconnect();
+      clearInterval(tick); clearInterval(updateTick);
+      window.removeEventListener('focus', onFocus);
+      clearTimeout(searchTimer);
+    };
   });
 
   // Debounced, staleness-guarded search. The old per-keystroke await had no
