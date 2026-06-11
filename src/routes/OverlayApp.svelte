@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import OverlayWindow from '../components/overlay/OverlayWindow.svelte';
-  import { hideOverlay, onCoreEvent } from '../lib/ipc';
+  import { getConfig, hideOverlay, onConfigChanged, onCoreEvent } from '../lib/ipc';
+  import { formatHotkey } from '../lib/format';
+  import { DEFAULT_HOTKEY } from '../lib/modes';
+  import { applyTheme } from '../theme/theme';
   import type { CoreEvent } from '../lib/ipc';
+  import type { AppConfig } from '../types';
 
-  // Finalized sentences (capped at the last 5; OverlayWindow only renders that many).
+  // Finalized utterances (capped at the last 5; OverlayWindow only renders that many).
   let lines = $state<string[]>([]);
-  // The current sentence still being built from final tokens (Soniox emits one final per
-  // sub-word). Flushed into `lines` on sentence-end punctuation or speaker change.
+  // The current utterance still being built from final tokens (Soniox emits one final per
+  // sub-word). Flushed into `lines` on an utterance break or speaker change.
   let pending = $state<string>('');
   let pendingChip = $state<string | null>(null);
   // Frame-level non-final partial (cumulative trailing tokens) — overwritten each Live event.
@@ -16,10 +20,24 @@
   let connState = $state<'active' | 'reconnecting' | 'idle'>('idle');
   let attempt = $state<number | null>(null);
   let retryInMs = $state<number | null>(null);
-  let connectionLabel = $state('IDLE');
   let hover = $state(false);
 
-  const SENTENCE_END = /[.!?。！？]\s*$/;
+  // This webview has its own config copy: labels, hotkey hint and theme all
+  // derive from it (they were hardcoded 'EN → VI' / ⌃⇧V / dark before).
+  let cfg = $state<AppConfig | null>(null);
+  const pairLabel = $derived.by(() => {
+    if (!cfg) return '';
+    const a = cfg.language_a.toUpperCase();
+    const b = cfg.language_b.toUpperCase();
+    return cfg.mode === 'meeting' ? `${a} → ${b}` : `${a} ⇄ ${b}`;
+  });
+  const hotkeyLabel = $derived(formatHotkey(cfg?.hotkey ?? DEFAULT_HOTKEY));
+  function adoptConfig(c: AppConfig) {
+    cfg = c;
+    // applyTheme mutates THIS document's body — the overlay window themes
+    // itself (it was pinned dark; light tokens were unreachable).
+    applyTheme(c.theme);
+  }
 
   function flushPending() {
     if (!pending) return;
@@ -34,20 +52,25 @@
         break;
       case 'transcript-final':
         if (ev.status !== 'translation') break;
-        // Speaker change → previous sentence is done, regardless of punctuation.
+        // Speaker change → previous utterance is done, regardless of pauses.
         if (pendingChip !== null && ev.chip !== pendingChip) flushPending();
         pending = pending + ev.text;
         pendingChip = ev.chip;
         // The non-final partial only contains tokens past the cursor — once a token
         // finalizes it disappears from `live`, so clear our local copy too.
         live = '';
-        if (SENTENCE_END.test(pending)) flushPending();
+        break;
+      case 'utterance-break':
+        // Speech pause — the same row boundary the main transcript uses. We
+        // deliberately never break on punctuation (ASCII `.!?` vs CJK `。！？`
+        // tokenize asymmetrically across languages); without this case a
+        // punctuation-less target language never flushed under the 5-line cap.
+        flushPending();
         break;
       case 'connection-state':
         connState = ev.state;
         attempt = ev.attempt;
         retryInMs = ev.retry_in_ms;
-        if (connState === 'active') connectionLabel = 'EN → VI';
         break;
       case 'session-started':
         connState = 'active';
@@ -82,8 +105,14 @@
 
   onMount(() => {
     let unlisten: (() => void) | undefined;
+    let unConfig: (() => void) | undefined;
     onCoreEvent(handle).then((un) => { unlisten = un; });
-    return () => { if (unlisten) unlisten(); };
+    // Guarded like other Tauri calls in onMount: vitest/jsdom has no runtime.
+    if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+      getConfig().then(adoptConfig).catch((e) => console.debug('overlay config load failed', e));
+      onConfigChanged(adoptConfig).then((un) => { unConfig = un; });
+    }
+    return () => { unlisten?.(); unConfig?.(); };
   });
 </script>
 
@@ -91,8 +120,9 @@
   <OverlayWindow
     lines={displayLines}
     state={connState}
-    {connectionLabel}
+    connectionLabel={pairLabel}
     {hover}
+    {hotkeyLabel}
     attempt={attempt ?? 1}
     retryInMs={retryInMs ?? 0}
     onclose={() => hideOverlay()} />

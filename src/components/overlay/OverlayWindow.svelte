@@ -76,7 +76,7 @@
         class="text-[17px] font-medium"
         style:color="var(--vt-warn)"
         style:letter-spacing="-0.15px">
-        Đang kết nối lại…
+        Reconnecting…
       </div>
     {:else}
       <div class="text-xs mb-1" style:color="var(--vt-dim)">

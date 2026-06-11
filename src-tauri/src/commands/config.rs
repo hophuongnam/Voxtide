@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Emitter, State};
 
 use voxtide_core::config::AppConfig;
 
@@ -29,6 +29,10 @@ pub fn set_config(
         kind: "io",
         message: e.to_string(),
     })?;
+    // Broadcast the persisted config so other windows (overlay) re-derive
+    // their labels/theme/hotkey hint live. Emitted right after save — the
+    // file holds this config even if the hotkey re-register below fails.
+    let _ = app.emit("voxtide://config", &cfg);
     // Apply a hotkey change live (no restart). The config STAYS SAVED even if
     // registration fails — the user corrects the field with the error shown —
     // but the previous working binding is restored best-effort so a typo

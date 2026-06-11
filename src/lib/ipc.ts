@@ -84,3 +84,9 @@ export type CoreEvent =
 export function onCoreEvent(handler: (ev: CoreEvent) => void): Promise<UnlistenFn> {
   return listen<CoreEvent>('voxtide://event', (e) => handler(e.payload));
 }
+
+/** Fires with the full persisted config whenever set_config saves — lets
+ *  other windows (overlay) re-derive labels/theme/hotkey hints live. */
+export function onConfigChanged(handler: (cfg: AppConfig) => void): Promise<UnlistenFn> {
+  return listen<AppConfig>('voxtide://config', (e) => handler(e.payload));
+}
