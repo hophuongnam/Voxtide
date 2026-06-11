@@ -1,6 +1,7 @@
 //! Audio capture abstraction. Output is always 16 kHz mono s16le PCM in 1600-sample (100 ms) chunks.
 
 pub mod cpal_pipeline;
+pub mod loopback;
 pub mod mock;
 pub mod resampler;
 

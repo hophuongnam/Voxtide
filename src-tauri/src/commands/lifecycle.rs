@@ -80,9 +80,8 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
                 Box::new(MicSource::by_id(&req.device_id))
             }
         }
-        Mode::Meeting => {
-            loopback_source(&req.device_id).map_err(|e| StartError::classify(&e, mode))?
-        }
+        Mode::Meeting => voxtide_core::audio::loopback::by_id(&req.device_id)
+            .map_err(|e| StartError::classify(&e, mode))?,
     };
     let provider = Box::new(SonioxBYOK::new());
     let cfg = SessionConfig {
@@ -106,28 +105,4 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
 #[tauri::command]
 pub async fn stop_session(state: State<'_, AppState>) -> Result<(), String> {
     state.controller.stop().await.map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "macos")]
-fn loopback_source(device_id: &str) -> Result<Box<dyn AudioSource>, CoreError> {
-    use voxtide_core::audio::macos_loopback::{list_loopback_sources, MacLoopbackSource};
-    let sources = list_loopback_sources()?;
-    let target = sources
-        .into_iter()
-        .find(|s| s.id == device_id)
-        .ok_or_else(|| CoreError::Audio(format!("loopback source not found: {device_id}")))?;
-    Ok(Box::new(MacLoopbackSource::new(target)))
-}
-
-#[cfg(target_os = "windows")]
-fn loopback_source(device_id: &str) -> Result<Box<dyn AudioSource>, CoreError> {
-    use voxtide_core::audio::windows_loopback::WinLoopbackSource;
-    Ok(Box::new(WinLoopbackSource::by_id(device_id)))
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn loopback_source(_id: &str) -> Result<Box<dyn AudioSource>, CoreError> {
-    Err(CoreError::Audio(
-        "loopback unsupported on this platform".into(),
-    ))
 }
