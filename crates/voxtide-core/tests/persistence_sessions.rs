@@ -95,7 +95,9 @@ async fn delete_removes_session_and_cascades_to_tokens_and_fts() {
     let tokens = Tokens::list_by_session(s.pool(), id).await.unwrap();
     assert!(tokens.is_empty(), "tokens should cascade-delete");
 
-    let hits = Tokens::search(s.pool(), "doomed", 10).await.unwrap();
+    let hits = Tokens::search_sessions(s.pool(), "doomed", 10)
+        .await
+        .unwrap();
     assert!(hits.is_empty(), "fts5 mirror should be cleared by trigger");
 }
 

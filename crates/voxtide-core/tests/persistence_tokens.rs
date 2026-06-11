@@ -1,5 +1,5 @@
 use voxtide_core::persistence::sessions::{NewSession, Sessions};
-use voxtide_core::persistence::tokens::{NewToken, SearchHit, Tokens};
+use voxtide_core::persistence::tokens::{NewToken, Tokens};
 use voxtide_core::persistence::Store;
 
 async fn open_store() -> Store {
@@ -52,9 +52,11 @@ async fn insert_token_and_search_finds_match() {
     .await
     .unwrap();
 
-    let hits: Vec<SearchHit> = Tokens::search(s.pool(), "world", 10).await.unwrap();
+    let hits = Tokens::search_sessions(s.pool(), "world", 10)
+        .await
+        .unwrap();
     assert_eq!(hits.len(), 1);
-    assert!(hits[0].text.contains("Hello"));
+    assert_eq!(hits[0].id, session_id);
 
     let by_session = Tokens::list_by_session(s.pool(), session_id).await.unwrap();
     assert_eq!(by_session.len(), 2);
@@ -94,10 +96,67 @@ async fn deleting_session_cascades_to_tokens_and_fts() {
         .execute(s.pool())
         .await
         .unwrap();
-    let hits = Tokens::search(s.pool(), "ephemeral", 10).await.unwrap();
+    let hits = Tokens::search_sessions(s.pool(), "ephemeral", 10)
+        .await
+        .unwrap();
     assert!(
         hits.is_empty(),
         "FTS row should have been removed by trigger"
+    );
+}
+
+#[tokio::test]
+async fn search_sessions_finds_rows_beyond_any_cache_and_dedupes() {
+    let s = open_store().await;
+    let mk = |started_at: i64| NewSession {
+        started_at,
+        mode: "meeting".into(),
+        lang_a: "en".into(),
+        lang_b: "vi".into(),
+        device_label: None,
+    };
+    // The OLDER session holds the match — a sidebar cache of recent rows
+    // would never contain it; search must return the row itself.
+    let old_id = Sessions::create(s.pool(), mk(1_000)).await.unwrap();
+    let new_id = Sessions::create(s.pool(), mk(2_000)).await.unwrap();
+    let tok = |session_id: i64, ts_ms: i64, text: &str| NewToken {
+        session_id,
+        ts_ms,
+        text: text.into(),
+        language: Some("en".into()),
+        status: "original".into(),
+        speaker: None,
+        is_break: 0,
+    };
+    Tokens::insert(s.pool(), tok(old_id, 10, "alpha particle"))
+        .await
+        .unwrap();
+    Tokens::insert(s.pool(), tok(old_id, 20, "alpha again"))
+        .await
+        .unwrap();
+    Tokens::insert(s.pool(), tok(new_id, 30, "gamma ray"))
+        .await
+        .unwrap();
+
+    let rows = Tokens::search_sessions(s.pool(), "alpha", 50)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![old_id],
+        "one SessionRow per matching session (DISTINCT), even with two hits"
+    );
+
+    // Both sessions match → recency order (newest first).
+    Tokens::insert(s.pool(), tok(new_id, 40, "alpha too"))
+        .await
+        .unwrap();
+    let rows = Tokens::search_sessions(s.pool(), "alpha", 50)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![new_id, old_id]
     );
 }
 
@@ -155,7 +214,9 @@ async fn insert_many_lands_the_whole_batch() {
         vec!["one", "hai", "three"]
     );
     // FTS triggers fire inside the transaction too.
-    let hits = Tokens::search(s.pool(), "three", 10).await.unwrap();
+    let hits = Tokens::search_sessions(s.pool(), "three", 10)
+        .await
+        .unwrap();
     assert_eq!(hits.len(), 1);
 
     // Empty batch is a no-op, not an error.

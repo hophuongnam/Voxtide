@@ -412,6 +412,85 @@ describe('MainApp language swap', () => {
   });
 });
 
+describe('MainApp search', () => {
+  const bootMock = (extra?: (cmd: string, args?: any) => unknown | undefined) =>
+    (invokeMock as any).mockImplementation(async (cmd: string, args?: any) => {
+      const handled = extra?.(cmd, args);
+      if (handled !== undefined) return handled;
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return sampleSessions;
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+  const searchInput = async (container: HTMLElement) => {
+    await waitFor(() => {
+      expect(container.querySelector('input[type="search"]')).not.toBeNull();
+    });
+    return container.querySelector('input[type="search"]') as HTMLInputElement;
+  };
+
+  it('whitespace-only query keeps the full session list and issues no search IPC', async () => {
+    invokeMock.mockClear();
+    bootMock();
+    const { container } = render(MainApp);
+    await waitFor(() => {
+      expect(container.querySelectorAll('button[data-active]').length).toBe(2);
+    });
+    const input = await searchInput(container);
+    await fireEvent.input(input, { target: { value: '   ' } });
+    // An untrimmed `query ? hits : sessions` gate blanked the sidebar here.
+    expect(container.querySelectorAll('button[data-active]').length).toBe(2);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(invokeMock).not.toHaveBeenCalledWith('search_transcripts', expect.anything());
+  });
+
+  it('debounces rapid keystrokes into a single search IPC call', async () => {
+    invokeMock.mockClear();
+    bootMock((cmd) => (cmd === 'search_transcripts' ? [sampleSessions[1]] : undefined));
+    const { container } = render(MainApp);
+    const input = await searchInput(container);
+    await fireEvent.input(input, { target: { value: 'al' } });
+    await fireEvent.input(input, { target: { value: 'alpha' } });
+    await new Promise((r) => setTimeout(r, 320));
+    const calls = invokeMock.mock.calls.filter((c) => c[0] === 'search_transcripts');
+    expect(calls.length).toBe(1);
+    expect(calls[0]![1]).toMatchObject({ query: 'alpha' });
+  });
+
+  it('a stale search response cannot overwrite a newer one', async () => {
+    invokeMock.mockClear();
+    const resolvers = new Map<string, (rows: unknown) => void>();
+    bootMock((cmd, args) =>
+      cmd === 'search_transcripts'
+        ? new Promise((res) => resolvers.set(args.query, res))
+        : undefined,
+    );
+    const { container } = render(MainApp);
+    const input = await searchInput(container);
+
+    await fireEvent.input(input, { target: { value: 'old' } });
+    await new Promise((r) => setTimeout(r, 230)); // debounce fires; call 1 pending
+    await fireEvent.input(input, { target: { value: 'new' } });
+    await new Promise((r) => setTimeout(r, 230)); // call 2 pending
+    expect(resolvers.has('old') && resolvers.has('new')).toBe(true);
+
+    // Newer response lands first (ONE row), then the stale one (TWO rows)
+    // arrives late — it must be discarded, leaving one row rendered.
+    resolvers.get('new')!([sampleSessions[0]]);
+    await new Promise((r) => setTimeout(r, 10));
+    resolvers.get('old')!(sampleSessions);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(container.querySelectorAll('button[data-active]').length).toBe(1);
+  });
+});
+
 describe('MainApp past-session labels', () => {
   it('past viewer renders the stored session languages and mode, not the current config', async () => {
     const pastSession = {

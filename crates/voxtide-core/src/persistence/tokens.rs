@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use crate::persistence::sessions::SessionRow;
 use crate::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,14 +29,6 @@ pub struct TokenRow {
     pub speaker: Option<String>,
     /// See [`NewToken::is_break`].
     pub is_break: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct SearchHit {
-    pub id: i64,
-    pub session_id: i64,
-    pub ts_ms: i64,
-    pub text: String,
 }
 
 pub struct Tokens;
@@ -101,15 +94,29 @@ impl Tokens {
         Ok(rows)
     }
 
-    pub async fn search(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<SearchHit>> {
+    /// Full-text search returning the matching SESSIONS, newest first. The
+    /// frontend previously mapped token hits onto its in-memory sidebar cache
+    /// of recent sessions, silently dropping any match in an older session —
+    /// returning the rows themselves makes every match reachable.
+    pub async fn search_sessions(
+        pool: &SqlitePool,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<SessionRow>> {
         let q = sanitize_fts(query);
         if q.is_empty() {
             return Ok(Vec::new());
         }
-        let rows = sqlx::query_as::<_, SearchHit>(
-            "SELECT t.id, t.session_id, t.ts_ms, t.text \
-             FROM tokens_fts f JOIN tokens t ON t.id = f.rowid \
-             WHERE tokens_fts MATCH ? ORDER BY t.ts_ms DESC LIMIT ?",
+        let rows = sqlx::query_as::<_, SessionRow>(
+            "SELECT s.id, s.started_at, s.ended_at, s.mode, s.lang_a, s.lang_b, \
+                    s.device_label, s.duration_ms \
+             FROM sessions s \
+             WHERE s.id IN ( \
+                 SELECT DISTINCT t.session_id FROM tokens_fts f \
+                 JOIN tokens t ON t.id = f.rowid \
+                 WHERE tokens_fts MATCH ? \
+             ) \
+             ORDER BY s.started_at DESC LIMIT ?",
         )
         .bind(q)
         .bind(limit)

@@ -2,7 +2,7 @@ use serde::Serialize;
 use tauri::State;
 
 use voxtide_core::persistence::sessions::{SessionRow, Sessions};
-use voxtide_core::persistence::tokens::{SearchHit, TokenRow, Tokens};
+use voxtide_core::persistence::tokens::{TokenRow, Tokens};
 
 use crate::state::AppState;
 
@@ -41,9 +41,9 @@ pub async fn search_transcripts(
     state: State<'_, AppState>,
     query: String,
     limit: i64,
-) -> Result<Vec<SearchHit>, String> {
+) -> Result<Vec<SessionRow>, String> {
     let pool = state.controller.store().pool().clone();
-    Tokens::search(&pool, &query, limit)
+    Tokens::search_sessions(&pool, &query, limit)
         .await
         .map_err(|e| e.to_string())
 }

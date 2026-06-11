@@ -245,15 +245,32 @@
       }
     })();
 
-    return () => { unlisten?.(); unHotkey?.(); ro.disconnect(); clearInterval(tick); };
+    return () => { unlisten?.(); unHotkey?.(); ro.disconnect(); clearInterval(tick); clearTimeout(searchTimer); };
   });
 
-  async function onSearch(q: string) {
+  // Debounced, staleness-guarded search. The old per-keystroke await had no
+  // sequence guard (a slow early response could overwrite a newer one) and
+  // mapped hits onto the in-memory `sessions` cache, silently dropping any
+  // match in a session older than the sidebar's 50 rows.
+  let searchSeq = 0;
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  function onSearch(q: string) {
     query = q;
-    if (!q.trim()) { searchHits = []; return; }
-    const hits = await searchTranscripts(q);
-    const matchIds = new Set(hits.map(h => h.session_id));
-    searchHits = sessions.filter(s => matchIds.has(s.id));
+    if (!q.trim()) {
+      clearTimeout(searchTimer);
+      searchHits = [];
+      return;
+    }
+    clearTimeout(searchTimer);
+    const seq = ++searchSeq;
+    searchTimer = setTimeout(async () => {
+      try {
+        const rows = await searchTranscripts(q);
+        if (seq === searchSeq) searchHits = rows;
+      } catch (e) {
+        if (seq === searchSeq) appError = `search: ${e instanceof Error ? e.message : e}`;
+      }
+    }, 200);
   }
 
   // Type guard for the structured rejection payload `start_session` returns.
@@ -390,7 +407,7 @@
 
   <div class="flex-1 flex overflow-hidden">
     <Sidebar
-      sessions={query ? searchHits : sessions}
+      sessions={query.trim() ? searchHits : sessions}
       activeId={viewingId ?? session.sessionId}
       liveId={session.recording ? session.sessionId : null}
       onselect={onSelectSession}

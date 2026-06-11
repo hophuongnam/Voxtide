@@ -32,9 +32,11 @@ export interface TokenRow {
 }
 export const getSession = (id: number) =>
   invoke<{ session: SessionRow; tokens: TokenRow[] }>('get_session', { id });
-export interface SearchHit { id: number; session_id: number; ts_ms: number; text: string; }
+/** Full-text search over transcript tokens, returning the matching SESSIONS
+ *  (newest first) — independent of any sidebar cache, so matches in old
+ *  sessions are reachable. */
 export const searchTranscripts = (query: string, limit = 50) =>
-  invoke<SearchHit[]>('search_transcripts', { query, limit });
+  invoke<SessionRow[]>('search_transcripts', { query, limit });
 export const deleteSession = (id: number) =>
   invoke<void>('delete_session', { id });
 
