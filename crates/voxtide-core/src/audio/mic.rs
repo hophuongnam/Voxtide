@@ -78,6 +78,9 @@ impl AudioSource for MicSource {
         start_capture(CpalCaptureSpec {
             thread_name: format!("mic-{}", self.label),
             label: "mic",
+            // A mic always fires callbacks (real silence is still data);
+            // injection would corrupt timing.
+            silence_keepalive: false,
             open: Box::new(move |host| {
                 let device = pick_device(host, device_id.as_deref())?;
                 let config = device

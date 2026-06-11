@@ -93,6 +93,28 @@ pub(crate) struct CpalCaptureSpec {
     /// Log + error-message label ("mic", "wasapi").
     pub label: &'static str,
     pub open: OpenFn,
+    /// Inject 100 ms zero-frames whenever the data callback goes quiet.
+    ///
+    /// WASAPI loopback fires NO callbacks while no render stream is active
+    /// (nothing is playing), so without synthesized silence zero bytes flow
+    /// and Soniox idle-closes the websocket mid-session. True only for the
+    /// Windows loopback source — a mic always produces callbacks (real
+    /// silence is still data), and injecting there would corrupt timing.
+    pub silence_keepalive: bool,
+}
+
+/// How many 100 ms silence frames to inject given the gap (ms) since the last
+/// real data callback. Below 300 ms is normal callback jitter — inject
+/// nothing. Past that, backfill one frame per elapsed 100 ms (the 200 ms
+/// subtraction keeps steady-state injection at the real-time rate once the
+/// grace window has been consumed), capped at 1 s of catch-up so a clock jump
+/// or long stall can't flood the channel.
+pub fn silence_frames_due(gap_ms: u64) -> usize {
+    if gap_ms < 300 {
+        0
+    } else {
+        (((gap_ms - 200) / 100) as usize).min(10)
+    }
 }
 
 /// Spawn the capture thread and run the full cpal source lifecycle:
@@ -108,12 +130,19 @@ pub(crate) fn start_capture(spec: CpalCaptureSpec) -> Result<AudioStream> {
 
     let label = spec.label;
     let open = spec.open;
+    let silence_keepalive = spec.silence_keepalive;
 
     std::thread::Builder::new()
         .name(spec.thread_name)
         .spawn(move || {
             // Everything cpal-related lives entirely on this thread so that
             // the !Send cpal::Stream never crosses a thread boundary.
+
+            // Epoch-ms of the last REAL data callback; written by the RT
+            // callback (single Relaxed store — never a lock or allocation),
+            // read by the keepalive in the wait loop below.
+            let last_frame =
+                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(crate::now_ms() as u64));
             let host = cpal::default_host();
             let (device, supported_config) = match open(&host) {
                 Ok(v) => v,
@@ -165,10 +194,17 @@ pub(crate) fn start_capture(spec: CpalCaptureSpec) -> Result<AudioStream> {
                 ($sample_ty:ty, $to_f32:expr) => {{
                     let mut pipe_cb = pipeline;
                     let err_tx_cb = err_tx.clone();
+                    let last_frame_cb = std::sync::Arc::clone(&last_frame);
                     device
                         .build_input_stream(
                             &stream_config,
-                            move |data: &[$sample_ty], _| pipe_cb.push_converted(data, $to_f32),
+                            move |data: &[$sample_ty], _| {
+                                last_frame_cb.store(
+                                    crate::now_ms() as u64,
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                                pipe_cb.push_converted(data, $to_f32)
+                            },
                             move |e| {
                                 tracing::error!(?e, label, "cpal stream error");
                                 let _ = err_tx_cb.send(());
@@ -232,13 +268,38 @@ pub(crate) fn start_capture(spec: CpalCaptureSpec) -> Result<AudioStream> {
             // - stop_rx Ok/Closed → explicit stop, or the stop sender was
             //   dropped (the init-timeout path drops it). Break.
             // - stop_rx Empty   → neither yet; keep waiting.
+            //
+            // The 200 ms poll tick doubles as the silence-keepalive watchdog
+            // (when enabled): if the data callback has gone quiet past the
+            // grace window, inject zero-frames at the real-time rate so the
+            // provider never starves. `silence_watermark` tracks how far
+            // injected audio has covered the timeline, so a tick never
+            // re-injects time it already filled; a real callback advancing
+            // `last_frame` past the watermark hands the clock back to the
+            // device.
+            let mut silence_watermark = crate::now_ms() as u64;
             loop {
                 match err_rx.recv_timeout(std::time::Duration::from_millis(200)) {
                     Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => match stop_rx.try_recv() {
-                        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
-                        _ => break,
-                    },
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if silence_keepalive {
+                            let now = crate::now_ms() as u64;
+                            let last_covered = silence_watermark
+                                .max(last_frame.load(std::sync::atomic::Ordering::Relaxed));
+                            let due = silence_frames_due(now.saturating_sub(last_covered));
+                            for _ in 0..due {
+                                let _ = tx.try_send(AudioFrame::silence());
+                            }
+                            if due > 0 {
+                                silence_watermark =
+                                    last_covered + (due as u64) * crate::audio::CHUNK_MS as u64;
+                            }
+                        }
+                        match stop_rx.try_recv() {
+                            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
+                            _ => break,
+                        }
+                    }
                 }
             }
 

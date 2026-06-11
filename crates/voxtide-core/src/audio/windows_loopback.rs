@@ -88,6 +88,9 @@ impl AudioSource for WinLoopbackSource {
         start_capture(CpalCaptureSpec {
             thread_name: format!("wasapi-loopback-{}", self.label),
             label: "wasapi",
+            // WASAPI loopback fires no callbacks while nothing is playing;
+            // the keepalive injects silence so Soniox doesn't idle-close.
+            silence_keepalive: true,
             open: Box::new(move |host| {
                 let device = pick_render_device(host, device_id.as_deref())?;
                 // Use the default *output* config — cpal/WASAPI loopback

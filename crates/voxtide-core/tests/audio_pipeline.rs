@@ -85,3 +85,26 @@ fn sub_chunk_callbacks_carry_remainders() {
         frames.len()
     );
 }
+
+// ─── WASAPI silence keepalive (pure logic; Windows wiring is CI-compiled) ────
+
+#[test]
+fn silence_frames_due_boundaries() {
+    use voxtide_core::audio::cpal_pipeline::silence_frames_due;
+    // Below the 300 ms grace window: no injection (normal callback jitter).
+    assert_eq!(silence_frames_due(0), 0);
+    assert_eq!(silence_frames_due(299), 0);
+    // At the threshold: one 100 ms frame.
+    assert_eq!(silence_frames_due(300), 1);
+    // 1 s of silence: backfill at the real-time rate (minus the grace).
+    assert_eq!(silence_frames_due(1_000), 8);
+    // Catch-up is capped at 1 s of injected audio.
+    assert_eq!(silence_frames_due(10_000), 10);
+}
+
+#[test]
+fn silence_frame_is_one_full_zero_chunk() {
+    let f = AudioFrame::silence();
+    assert_eq!(f.samples.len(), CHUNK_SAMPLES);
+    assert!(f.samples.iter().all(|s| *s == 0));
+}

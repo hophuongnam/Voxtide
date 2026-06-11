@@ -39,6 +39,15 @@ impl AudioFrame {
         }
         out
     }
+
+    /// One standard chunk (100 ms) of digital silence. Injected by the WASAPI
+    /// loopback keepalive so the provider keeps receiving real-time audio when
+    /// no render stream is active (WASAPI fires no callbacks then).
+    pub fn silence() -> Self {
+        Self {
+            samples: vec![0i16; CHUNK_SAMPLES],
+        }
+    }
 }
 
 #[derive(Default)]
