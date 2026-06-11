@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use parking_lot::Mutex;
 use tauri::Manager;
 
 mod commands;
@@ -19,10 +18,19 @@ fn main() {
 
     tracing_subscriber::fmt::try_init().ok();
 
-    let app_state = rt.block_on(state::init()).expect("voxtide-core init");
-    let app_state = Mutex::new(Some(app_state));
-
     let app = tauri::Builder::default()
+        // MUST be the first plugin: a second launch is killed during plugin
+        // initialization, before .setup() opens the shared DB below. Without
+        // the guard, the second instance's Store::open reconcile stamped the
+        // FIRST instance's live session as ended (ended_at = started_at,
+        // duration 0); on Windows it also panicked on the hotkey conflict.
+        // The callback runs in the FIRST instance: surface its window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
@@ -55,7 +63,12 @@ fn main() {
             }
         })
         .setup(move |app| {
-            let state = app_state.lock().take().expect("AppState already taken");
+            // DB open + orphan reconcile live INSIDE setup so they can never
+            // run in a doomed second instance (the single-instance plugin
+            // exits one during plugin init, which precedes setup). block_on
+            // is legal here: setup runs on the plain (non-async) main thread
+            // — see the runtime comment at the top of main().
+            let state = tauri::async_runtime::block_on(state::init())?;
             // Subscribe BEFORE handing state to Tauri so we hold a reference to the controller.
             // This single persistent forwarder replaces the per-call spawns that were previously
             // in `lifecycle::start_session`, which leaked one task per start/stop cycle.
