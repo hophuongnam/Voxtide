@@ -26,7 +26,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'list_mics') return [];
     if (cmd === 'list_loopback_sources') return [];
     if (cmd === 'delete_session') return null;
-    if (cmd === 'app_info') return { model: 'stt-rt-v4', sample_rate_hz: 16000, channels: 1 };
+    if (cmd === 'app_info') return { model: 'stt-rt-v5', sample_rate_hz: 16000, channels: 1 };
     return null;
   }),
 }));
@@ -665,6 +665,6 @@ describe('MainApp status bar truth', () => {
     // truth: voxtide_core::translation::soniox::MODEL), so a model bump can
     // never leave the UI lying.
     await findByText(/stt-rt-v9-future/);
-    expect(container.textContent ?? '').not.toContain('stt-rt-v4');
+    expect(container.textContent ?? '').not.toContain('stt-rt-v5');
   });
 });

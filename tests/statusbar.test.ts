@@ -5,7 +5,7 @@ import StatusBar from '../src/components/status/StatusBar.svelte';
 const props = {
   recording: true, elapsedMs: 38 * 60 * 1000 + 24 * 1000,
   latencyMs: 262, mode: 'meeting' as const,
-  translationSummary: 'one_way → VI', model: 'stt-rt-v4',
+  translationSummary: 'one_way → VI', model: 'stt-rt-v5',
   audioFormat: '16 kHz · mono · s16le',
   version: '0.1.1',
 };
@@ -16,7 +16,7 @@ describe('StatusBar visibility breakpoints', () => {
     const text = container.textContent ?? '';
     expect(text).toContain('REC');
     expect(text).toContain('00:38:24');
-    expect(text).toContain('stt-rt-v4');
+    expect(text).toContain('stt-rt-v5');
     expect(text).toContain('262 ms');
     expect(text).toContain('one_way → VI');
     expect(text).toContain('16 kHz');
@@ -36,7 +36,7 @@ describe('StatusBar visibility breakpoints', () => {
   });
   it('hides model below 580px', () => {
     const { container } = render(StatusBar, { props: { ...props, width: 480 } });
-    expect(container.textContent ?? '').not.toContain('stt-rt-v4');
+    expect(container.textContent ?? '').not.toContain('stt-rt-v5');
   });
   it('hides translation summary below 480px', () => {
     const { container } = render(StatusBar, { props: { ...props, width: 460 } });

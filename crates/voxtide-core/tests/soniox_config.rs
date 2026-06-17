@@ -12,7 +12,7 @@ fn meeting_one_way_translates_source_a_into_target_b() {
     };
     let v = build_initial_config(&cfg);
     assert_eq!(v["api_key"], "sk_test");
-    assert_eq!(v["model"], "stt-rt-v4");
+    assert_eq!(v["model"], "stt-rt-v5");
     assert_eq!(v["audio_format"], "pcm_s16le");
     assert_eq!(v["sample_rate"], 16000);
     assert_eq!(v["num_channels"], 1);

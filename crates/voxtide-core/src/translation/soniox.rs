@@ -14,7 +14,7 @@ use crate::translation::{FinalToken, Mode, SessionConfig, TranslationEvent, Tran
 use crate::{Error, Result};
 
 pub const SONIOX_WS: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
-pub const MODEL: &str = "stt-rt-v4";
+pub const MODEL: &str = "stt-rt-v5";
 
 /// Bytes per millisecond of the audio we stream: pcm_s16le (2 bytes/sample)
 /// at the pipeline's rate/channel constants = 16000 × 1 × 2 / 1000 = 32.
