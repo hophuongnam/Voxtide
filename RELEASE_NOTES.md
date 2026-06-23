@@ -1,20 +1,16 @@
-# Voxtide v0.1.5
+# Voxtide v0.1.7
 
-### Fixed
-- **Stuck "recording" history entries can now be deleted.** Some past
-  sessions showed a red recording dot with no delete button and a "—"
-  duration, and were impossible to remove. These were sessions that never
-  got finalized — for example when the app was quit or the connection
-  dropped while recording. They are now normal history entries: no false
-  recording dot, and deletable like any other.
-- **Sessions are always finalized.** A session now records its end time on
-  every path — when you stop it, when you quit the app mid-recording, and
-  when the transcription connection closes unexpectedly — so no new stuck
-  entries can accumulate.
-- **Existing stuck entries are repaired automatically** the next time you
-  launch this version. Nothing to do on your end.
+### Added
+- **Optional microphone capture in System Audio mode.** There's now a
+  microphone toggle in the toolbar. Turn it on and your own voice is blended
+  into the System Audio stream, so both the audio playing on your Mac and what
+  you say out loud are transcribed in the same session — handy when a
+  conversation is part in-person and part remote. It's off by default and uses
+  your existing microphone setting. In Meeting mode, switching the mic on turns
+  on two-way translation and labels both columns accordingly.
 
 ### Notes
+- The first time you enable the mic, macOS will ask for microphone permission.
 - Existing installs update automatically. Your saved settings and history
   carry over unchanged.
 - macOS (Apple Silicon) and Windows builds are attached below.
