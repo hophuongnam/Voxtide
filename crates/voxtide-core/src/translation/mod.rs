@@ -25,6 +25,10 @@ pub struct SessionConfig {
     pub mode: Mode,
     pub language_a: String,
     pub language_b: String,
+    /// Meeting mode only: the local microphone is blended into the system-audio
+    /// stream, so the session runs two-way (the local speaker talks language_b).
+    /// Ignored in Conversation mode (already two-way).
+    pub capture_mic: bool,
 }
 
 /// One finalized transcript token within a [`TranslationEvent::Finals`] frame.

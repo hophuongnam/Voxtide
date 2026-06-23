@@ -32,6 +32,7 @@ async fn mock_replays_a_script_after_open() {
         mode: Mode::Conversation,
         language_a: "en".into(),
         language_b: "vi".into(),
+        capture_mic: false,
     })
     .await
     .unwrap();

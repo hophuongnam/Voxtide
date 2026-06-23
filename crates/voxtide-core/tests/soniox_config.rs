@@ -9,6 +9,7 @@ fn meeting_one_way_translates_source_a_into_target_b() {
         mode: Mode::Meeting,
         language_a: "en".into(),
         language_b: "vi".into(),
+        capture_mic: false,
     };
     let v = build_initial_config(&cfg);
     assert_eq!(v["api_key"], "sk_test");
@@ -40,6 +41,7 @@ fn meeting_one_way_vi_source_into_en_target() {
         mode: Mode::Meeting,
         language_a: "vi".into(),
         language_b: "en".into(),
+        capture_mic: false,
     };
     let v = build_initial_config(&cfg);
     assert_eq!(v["language_hints"], json!(["vi"]));
@@ -59,6 +61,7 @@ fn conversation_two_way_config_emits_both_languages() {
         mode: Mode::Conversation,
         language_a: "en".into(),
         language_b: "ja".into(),
+        capture_mic: false,
     };
     let v = build_initial_config(&cfg);
     assert_eq!(
@@ -69,5 +72,31 @@ fn conversation_two_way_config_emits_both_languages() {
             "language_b": "ja"
         })
     );
+    assert_eq!(v["language_hints"], serde_json::Value::Null);
+}
+
+/// Meeting mode with the local mic blended in goes two-way: the remote side
+/// (language_a, via system audio) and the local speaker (language_b, via mic)
+/// are both transcribed and cross-translated. Without this, the mic's
+/// language_b speech would be hinted for language_a and never translated.
+#[test]
+fn meeting_with_capture_mic_is_two_way() {
+    let cfg = SessionConfig {
+        api_key: "sk_test".into(),
+        mode: Mode::Meeting,
+        language_a: "en".into(),
+        language_b: "vi".into(),
+        capture_mic: true,
+    };
+    let v = build_initial_config(&cfg);
+    assert_eq!(
+        v["translation"],
+        json!({
+            "type": "two_way",
+            "language_a": "en",
+            "language_b": "vi"
+        })
+    );
+    // No single-language hint when both directions are live.
     assert_eq!(v["language_hints"], serde_json::Value::Null);
 }

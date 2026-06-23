@@ -24,6 +24,8 @@
     source: DeviceEntry | null;
     sourceOptions: DeviceEntry[];
     onsource: (d: DeviceEntry) => void;
+    captureMic: boolean;
+    oncapturemic: (v: boolean) => void;
   }
   const p: Props = $props();
 </script>
@@ -43,6 +45,16 @@
   <div class="ml-1.5">
     <AudioSourcePicker mode={p.mode} selected={p.source} options={p.sourceOptions} onselect={p.onsource} />
   </div>
+  {#if p.mode === 'meeting'}
+    <!-- Blend the local mic into system audio → two-way translation. -->
+    <label class="ml-1.5 flex items-center gap-1.5 text-[12px] cursor-pointer select-none"
+           style:color="var(--vt-text)" title="Also capture your microphone (two-way translation)">
+      <input type="checkbox" checked={p.captureMic}
+             style:accent-color="var(--vt-accent)"
+             onchange={(e) => p.oncapturemic((e.currentTarget as HTMLInputElement).checked)} />
+      Microphone
+    </label>
+  {/if}
   <div class="flex-1"></div>
   <IconBtn name="overlay" active={p.overlayShown} title="Show overlay" onclick={p.onoverlay} />
   <IconBtn name="cog" title="Settings" onclick={p.onsettings} />

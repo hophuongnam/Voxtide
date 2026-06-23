@@ -47,6 +47,7 @@ async fn soniox_byok_streams_tokens_through_to_events() {
             mode: Mode::Conversation,
             language_a: "en".into(),
             language_b: "vi".into(),
+            capture_mic: false,
         })
         .await
         .unwrap();
@@ -99,6 +100,7 @@ async fn soniox_endpoint_marker_becomes_utterance_break() {
             mode: Mode::Meeting,
             language_a: "en".into(),
             language_b: "vi".into(),
+            capture_mic: false,
         })
         .await
         .unwrap();
@@ -177,6 +179,7 @@ async fn finals_lag_is_audio_sent_minus_watermark() {
             mode: Mode::Meeting,
             language_a: "en".into(),
             language_b: "vi".into(),
+            capture_mic: false,
         })
         .await
         .unwrap();

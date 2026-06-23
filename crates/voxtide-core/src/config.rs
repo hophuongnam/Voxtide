@@ -40,6 +40,11 @@ pub struct AppConfig {
     pub font_size: FontSize,
     #[serde(default)]
     pub show_pinyin: bool,
+    /// System Audio mode only: also capture the local microphone, blended into
+    /// the system-audio stream (turns the meeting two-way). Persisted so the
+    /// toolbar toggle survives relaunch.
+    #[serde(default)]
+    pub meeting_capture_mic: bool,
 }
 
 impl Default for AppConfig {
@@ -56,6 +61,7 @@ impl Default for AppConfig {
             mode: Mode::Meeting,
             font_size: FontSize::M,
             show_pinyin: false,
+            meeting_capture_mic: false,
         }
     }
 }

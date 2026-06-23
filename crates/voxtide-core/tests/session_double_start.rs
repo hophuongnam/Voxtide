@@ -38,6 +38,7 @@ fn make_cfg() -> SessionConfig {
         mode: Mode::Conversation,
         language_a: "en".into(),
         language_b: "vi".into(),
+        capture_mic: false,
     }
 }
 

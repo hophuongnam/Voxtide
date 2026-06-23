@@ -72,6 +72,7 @@ async fn accept_then_close_terminates() {
             mode: Mode::Meeting,
             language_a: "en".into(),
             language_b: "vi".into(),
+            capture_mic: false,
         })
         .await
         .unwrap();

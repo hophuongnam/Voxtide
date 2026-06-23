@@ -34,23 +34,22 @@ pub fn build_initial_config(cfg: &SessionConfig) -> Value {
         "enable_speaker_diarization": true,
     });
 
-    match cfg.mode {
-        Mode::Meeting => {
-            // language_a is the spoken (source) language; language_b is the
-            // translation target. One-way a → b.
-            base["language_hints"] = json!([cfg.language_a]);
-            base["translation"] = json!({
-                "type": "one_way",
-                "target_language": cfg.language_b,
-            });
-        }
-        Mode::Conversation => {
-            base["translation"] = json!({
-                "type": "two_way",
-                "language_a": cfg.language_a,
-                "language_b": cfg.language_b,
-            });
-        }
+    // Two-way whenever both languages can be spoken into one stream: always in
+    // Conversation, and in Meeting when the local mic is blended in (the remote
+    // speaks language_a via system audio, the local user language_b via mic).
+    // Plain Meeting (system audio only) stays one-way a → b.
+    if matches!(cfg.mode, Mode::Conversation) || cfg.capture_mic {
+        base["translation"] = json!({
+            "type": "two_way",
+            "language_a": cfg.language_a,
+            "language_b": cfg.language_b,
+        });
+    } else {
+        base["language_hints"] = json!([cfg.language_a]);
+        base["translation"] = json!({
+            "type": "one_way",
+            "target_language": cfg.language_b,
+        });
     }
     base
 }

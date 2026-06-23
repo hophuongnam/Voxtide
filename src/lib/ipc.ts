@@ -57,6 +57,8 @@ export interface StartReq {
   language_b: string;          // target (translation) language
   device_id: string;          // mic id for Conversation, loopback id (or "system") for Meeting
   api_key_account: string;
+  capture_mic?: boolean;       // Meeting only: blend the local mic in (→ two-way)
+  mic_device_id?: string;      // which mic to blend; empty = system default
 }
 export const startSession = (req: StartReq) => invoke<number>('start_session', { req });
 export const stopSession  = () => invoke<void>('stop_session');

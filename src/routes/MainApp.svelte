@@ -29,6 +29,8 @@
   import type { AppConfig, FontSize, Mode, SessionRow, StartError } from '../types';
 
   let mode = $state<Mode>('meeting');
+  // System Audio only: blend the local mic in (→ two-way). Hydrated from config.
+  let captureMic = $state(false);
   let sessions = $state<SessionRow[]>([]);
   let query = $state('');
   let searchHits = $state<SessionRow[]>([]);
@@ -278,6 +280,7 @@
         const cfg = await getConfig();
         config.setConfig(cfg);
         mode = cfg.mode;
+        captureMic = cfg.meeting_capture_mic;
         applyTheme(cfg.theme);
         config.setHasApiKey(await hasApiKey(config.apiKeyAccount));
         sessions = await listSessions();
@@ -339,6 +342,8 @@
         language_b: config.config.language_b,
         device_id: selectedSource.id,
         api_key_account: config.apiKeyAccount,
+        capture_mic: mode === 'meeting' && captureMic,
+        mic_device_id: config.config.default_mic ?? '',
       });
     } catch (e) {
       // Route the typed StartError; never rethrow (a rethrow = unhandled
@@ -377,6 +382,12 @@
     if (m === mode) return;
     mode = m;
     if (config.config && config.config.mode !== m) await persist({ mode: m });
+  }
+  async function onCaptureMicChange(v: boolean) {
+    captureMic = v;
+    if (config.config && config.config.meeting_capture_mic !== v) {
+      await persist({ meeting_capture_mic: v });
+    }
   }
   async function onSourceChange(d: DeviceEntry) {
     selectedSource = d;
@@ -434,7 +445,8 @@
     onlangpick={onLangPick}
     source={selectedSource}
     sourceOptions={mode === 'meeting' ? meetingSources : micSources}
-    onsource={onSourceChange} />
+    onsource={onSourceChange}
+    {captureMic} oncapturemic={onCaptureMicChange} />
 
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
   {#if appError}

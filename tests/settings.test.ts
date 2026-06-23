@@ -8,7 +8,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'get_config') return {
       language_a: 'en', language_b: 'vi',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
-      default_meeting_source: null, default_mic: null,
+      default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
     };
     if (cmd === 'set_config') return null;

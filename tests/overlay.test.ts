@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'get_config') return {
       language_a: 'ja', language_b: 'ko',
       hotkey: 'CommandOrControl+Shift+V', theme: 'light',
-      default_meeting_source: null, default_mic: null,
+      default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
     };
     return null;
@@ -129,7 +129,7 @@ describe('OverlayApp', () => {
       // A config change re-derives everything without a restart:
       emitEvent('voxtide://config', {
         language_a: 'zh', language_b: 'en', hotkey: 'Alt+F5', theme: 'dark',
-        default_meeting_source: null, default_mic: null, mode: 'conversation',
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false, mode: 'conversation',
         font_size: 'm', show_pinyin: false,
       });
       await waitFor(() => {

@@ -18,7 +18,7 @@ const { invokeMock } = vi.hoisted(() => ({
     if (cmd === 'get_config') return {
       language_a: 'en', language_b: 'vi',
       hotkey: 'Ctrl+Shift+V', theme: 'system',
-      default_meeting_source: null, default_mic: null,
+      default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
     };
     if (cmd === 'has_api_key') return true;
@@ -114,7 +114,7 @@ describe('MainApp delete flow', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -140,7 +140,7 @@ describe('MainApp delete flow', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return false;
@@ -166,7 +166,7 @@ describe('MainApp reading config', () => {
       if (cmd === 'get_config') return {
         language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'm', show_pinyin: true,
       };
       if (cmd === 'has_api_key') return true;
@@ -195,7 +195,7 @@ describe('MainApp reading config', () => {
       if (cmd === 'get_config') return {
         language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'xl', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -233,7 +233,7 @@ describe('MainApp reading config', () => {
       if (cmd === 'get_config') return {
         language_a: 'zh', language_b: 'en',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'xl', show_pinyin: true,
       };
       if (cmd === 'has_api_key') return true;
@@ -286,7 +286,7 @@ describe('MainApp error surfacing', () => {
   const baseConfig = {
     language_a: 'en', language_b: 'vi',
     hotkey: 'Ctrl+Shift+V', theme: 'system',
-    default_meeting_source: null, default_mic: null,
+    default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
     mode: 'meeting', font_size: 'm', show_pinyin: false,
   };
   const loopback = [{ id: 'sys', label: 'System Audio', default: true }];
@@ -388,7 +388,7 @@ describe('MainApp language swap', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -421,7 +421,7 @@ describe('MainApp search', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -510,7 +510,7 @@ describe('MainApp past-session labels', () => {
         // Current config deliberately DIFFERS from the stored session:
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -549,7 +549,7 @@ describe('MainApp session lifecycle hygiene', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;
@@ -651,7 +651,7 @@ describe('MainApp status bar truth', () => {
       if (cmd === 'get_config') return {
         language_a: 'en', language_b: 'vi',
         hotkey: 'Ctrl+Shift+V', theme: 'system',
-        default_meeting_source: null, default_mic: null,
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
       };
       if (cmd === 'has_api_key') return true;

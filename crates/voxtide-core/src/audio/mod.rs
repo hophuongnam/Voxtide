@@ -2,6 +2,7 @@
 
 pub mod cpal_pipeline;
 pub mod loopback;
+pub mod mix;
 pub mod mock;
 pub mod resampler;
 

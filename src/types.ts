@@ -15,6 +15,8 @@ export interface AppConfig {
   mode: Mode;
   font_size: FontSize;
   show_pinyin: boolean;
+  // System Audio mode only: also capture the local mic (blended in → two-way).
+  meeting_capture_mic: boolean;
 }
 
 export interface SessionRow {
