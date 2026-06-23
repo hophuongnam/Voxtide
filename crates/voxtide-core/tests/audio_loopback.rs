@@ -1,6 +1,10 @@
 //! Platform-free loopback facade: callers (the Tauri shell) must never need
 //! a #[cfg] to list or construct a system-audio source.
 
+// ponytail: import gated to match its only consumers — the macOS tests below.
+// On Windows all three tests compile out, so an ungated import is unused →
+// `clippy -D warnings` fails on the Windows runner only (invisible to macOS).
+#[cfg(target_os = "macos")]
 use voxtide_core::audio::loopback;
 
 #[cfg(target_os = "macos")]
