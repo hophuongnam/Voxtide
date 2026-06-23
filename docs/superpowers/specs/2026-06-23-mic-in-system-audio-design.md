@@ -114,6 +114,21 @@ mic icon), per the literal-labels convention.
 `capture_mic: mode === 'meeting' && captureMic`,
 `mic_device_id: config.config.default_mic ?? ''`.
 
+### 7. `TranscriptPane.svelte` — two-way column headers
+
+**Column placement** is already correct with zero changes: the transcript store
+(`stores.svelte.ts`, both the live store and `dbTokensToColumns` replay path)
+places by `translation_status` — `original`→left, `translation`→right — and
+never branches on `mode`. So a local B→A turn (Soniox emits original=B,
+translation=A) lands B-left / A-right, coherent and identical to how
+Conversation mode (also two-way) already renders.
+
+Only the column **header hints** branched on `mode === 'meeting'` (e.g.
+"VI · target", implying one-way). They now key off a derived
+`twoWay = mode === 'conversation' || (mode === 'meeting' && captureMic)`, so a
+live mic-blend session shows the bidirectional headers ("EN/VI", "EN ⇄ VI",
+"two-way"). `MainApp` passes `captureMic` to the **live** pane only.
+
 ## Failure behavior
 
 | Case | Result |
@@ -137,9 +152,18 @@ No Info.plist change — `NSMicrophoneUsageDescription` is already present
   `AppConfig` fields (compiler-driven).
 - **Smoke gate** (mandatory before "done"): the standard 10 checks + a new
   mic-blend check — toggle visible only in System Audio mode, persists across
-  relaunch, and both directions (system→B, mic→A) produce transcript rows.
+  relaunch, and both directions transcribe **into the correct columns**: the
+  remote (A) and the local mic (B) each show original-left / translation-right
+  (assert column *correctness*, not merely that rows appear).
+
+## Known limitation
+
+The session row does not persist `capture_mic`, so **replay** of a past
+mic-blend session shows the one-way meeting headers (it can't know the session
+was two-way). Column *placement* is still correct on replay (status-based).
+Persisting the flag for accurate replay headers is deferred — YAGNI until asked.
 
 ## Out of scope
 
-Separate STT streams; per-session mic picker; transcript-UI changes (two-way
-already renders through the Conversation-mode path); Info.plist changes.
+Separate STT streams; per-session mic picker; persisting `capture_mic` to the
+DB; Info.plist changes (mic key already present).

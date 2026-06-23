@@ -17,27 +17,36 @@
     liveTranslationLang?: string | null;
     fontSize?: FontSize;
     showPinyin?: boolean;
+    /** System Audio session with the local mic blended in → runs two-way, so
+     *  the column headers reflect bidirectional content (same as Conversation).
+     *  Only meaningful for the live view; replay of past sessions passes false. */
+    captureMic?: boolean;
     cfg?: AppConfig | null;
     onconfigchange?: (next: AppConfig) => void;
   }
   const {
     mode, a, b, original, translation, liveOriginal, liveTranslation,
     liveOriginalLang = null, liveTranslationLang = null,
-    fontSize = 'm', showPinyin = false, cfg = null, onconfigchange = () => {},
+    fontSize = 'm', showPinyin = false, captureMic = false, cfg = null, onconfigchange = () => {},
   }: Props = $props();
+
+  // Two-way whenever both languages share one stream: Conversation always, and
+  // System Audio when the local mic is blended in. Drives the column headers;
+  // placement itself is status-based in the store and never branches on mode.
+  const twoWay = $derived(mode === 'conversation' || (mode === 'meeting' && captureMic));
 
   // The `m` value must stay in sync with Line.svelte's var(--vt-transcript-size, 13.5px) fallback.
   const FONT_PX: Record<FontSize, string> = {
     xs: '11px', s: '12.5px', m: '13.5px', l: '16px', xl: '19px',
   };
 
-  const originalCode = $derived(mode === 'meeting'
+  const originalCode = $derived(!twoWay
     ? `${a.code} · multi-speaker`
     : `${a.code}/${b.code}`);
-  const translationCode = $derived(mode === 'meeting'
+  const translationCode = $derived(!twoWay
     ? b.code
     : `${a.code} ⇄ ${b.code}`);
-  const translationSub = $derived(mode === 'meeting' ? 'target' : 'two-way');
+  const translationSub = $derived(!twoWay ? 'target' : 'two-way');
 
   let leftEl: HTMLElement | null = $state(null);
   let rightEl: HTMLElement | null = $state(null);

@@ -515,7 +515,7 @@
           liveTranslation={transcript.liveTranslation}
           liveOriginalLang={transcript.liveOriginalLang}
           liveTranslationLang={transcript.liveTranslationLang}
-          {fontSize} {showPinyin}
+          {fontSize} {showPinyin} {captureMic}
           cfg={config.config} onconfigchange={onReadingChange} />
       {/if}
       <StatusBar
