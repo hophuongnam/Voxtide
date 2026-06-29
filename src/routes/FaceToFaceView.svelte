@@ -11,6 +11,7 @@
   import { LANG_CODES, LANG_NAMES } from '../lib/languages';
   import { formatTime, formatDuration } from '../lib/format';
   import FacePane from '../components/FacePane.svelte';
+  import AndroidUpdateBanner from '../components/AndroidUpdateBanner.svelte';
   import type { AppConfig, SessionRow, TranscriptLine } from '../types';
 
   const ACCOUNT = 'default';
@@ -238,6 +239,7 @@
     <FacePane lines={split.far} live={live.far} rotated />
 
     <div class="bar">
+      <AndroidUpdateBanner />
       <div class="ctl">
         <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
