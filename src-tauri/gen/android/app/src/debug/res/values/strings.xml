@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only overrides (AGP merges src/debug/res over src/main/res for the
+     debug build type). Survives Tauri's build.gradle.kts rewrite because it
+     touches resources, not gradle config. -->
+<resources>
+    <string name="app_name">Voxtide Debug</string>
+    <string name="main_activity_title">Voxtide Debug</string>
+</resources>

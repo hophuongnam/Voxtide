@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Red adaptive-icon background marks the debug build at a glance. -->
+    <color name="debug_icon_background">#FFD32F2F</color>
+</resources>
