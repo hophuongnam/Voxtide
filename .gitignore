@@ -15,3 +15,6 @@ dist/
 # Implementation plans live alongside specs but are convention-tracked locally only —
 # only docs/superpowers/specs/ is committed. Keeps the tree clean for release.sh's pre-flight.
 /docs/superpowers/plans/
+
+# Subagent-driven-development execution ledger — local scratch, never committed.
+/.superpowers/
