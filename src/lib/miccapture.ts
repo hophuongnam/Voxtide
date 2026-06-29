@@ -22,12 +22,27 @@ let audioCtx: AudioContext | null = null;
 let node: AudioWorkletNode | null = null;
 let stream: MediaStream | null = null;
 
+/** Live pipeline vitals for the on-device diagnostic readout. `batches` climbing
+ *  proves getUserMedia+worklet+posting work; `sampleRate` must be 16000 or Soniox
+ *  gets pitch-shifted audio; `state` must reach 'running' or no audio flows. */
+export interface MicStats { state: string; sampleRate: number; batches: number; }
+
 /** Start capturing the mic and streaming PCM to Rust. Throws if mic permission
- *  is denied (NotAllowedError) — the caller surfaces that. */
-export async function startMicCapture(): Promise<void> {
+ *  is denied (NotAllowedError) — the caller surfaces that. `onStats` (optional)
+ *  reports pipeline vitals for the on-device diagnostic readout. */
+export async function startMicCapture(onStats?: (s: MicStats) => void): Promise<void> {
+  let batches = 0;
+  const report = () =>
+    onStats?.({ state: audioCtx?.state ?? '—', sampleRate: audioCtx?.sampleRate ?? 0, batches });
+
   stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   // Force 16 kHz so Rust receives the pipeline's native rate (no resampler).
   audioCtx = new AudioContext({ sampleRate: 16000 });
+  // Mobile WebViews start the context 'suspended' when it's created after an
+  // await has consumed the tap's transient activation — resume() or the worklet
+  // never runs (silent: no PCM, no error). The readout shows the real state.
+  await audioCtx.resume();
+  report();
   if (audioCtx.sampleRate !== 16000) {
     console.warn('[mic] AudioContext rate', audioCtx.sampleRate, '!= 16000; audio may be pitch-shifted');
   }
@@ -37,7 +52,11 @@ export async function startMicCapture(): Promise<void> {
   const srcNode = audioCtx.createMediaStreamSource(stream);
   node = new AudioWorkletNode(audioCtx, 'mic-capture');
   // Each ~100 ms batch (plain number[]) → Rust Vec<f32>. JSON-serializable as-is.
-  node.port.onmessage = (e) => { void invoke('feed_mic_pcm', { samples: e.data }); };
+  node.port.onmessage = (e) => {
+    batches++;
+    report();
+    void invoke('feed_mic_pcm', { samples: e.data });
+  };
   srcNode.connect(node);
   node.connect(audioCtx.destination); // keep the graph pulling; the worklet outputs silence (no echo)
 }
