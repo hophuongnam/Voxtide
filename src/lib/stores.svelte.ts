@@ -108,6 +108,38 @@ export function appendFinal(
   return list;
 }
 
+/** Normalize a language tag/code for comparison: lowercase, drop any region or
+ *  script suffix (`zh-CN` → `zh`). Soniox echoes the configured 2-letter codes,
+ *  but this insulates the face-to-face split from casing/region drift. */
+export function normLang(l: string | null | undefined): string {
+  return (l ?? '').toLowerCase().split('-')[0]!;
+}
+
+/**
+ * Partition transcript lines into the two face-to-face panes by spoken language.
+ * `far` = lines whose language matches `aCode`; `near` = EVERYTHING else.
+ *
+ * `near` is a deliberate catch-all (not a strict `bCode` match): a line carrying
+ * an unexpected Soniox language tag can then never silently vanish — it stays
+ * visible in the near pane instead of disappearing from both. Lines are merged
+ * across the original+translation columns (each reader wants one monolingual
+ * stream — their own speech plus translations INTO their language) and ordered
+ * by ts_ms. Each line keeps its `status`, so the renderer can still mark
+ * translated lines distinctly.
+ */
+export function splitByLanguage(
+  lines: TranscriptLine[],
+  aCode: string,
+): { far: TranscriptLine[]; near: TranscriptLine[] } {
+  const a = normLang(aCode);
+  const far: TranscriptLine[] = [];
+  const near: TranscriptLine[] = [];
+  for (const l of [...lines].sort((x, y) => x.ts_ms - y.ts_ms)) {
+    (normLang(l.language) === a ? far : near).push(l);
+  }
+  return { far, near };
+}
+
 export interface TranscriptStore {
   readonly original: TranscriptLine[];
   readonly translation: TranscriptLine[];

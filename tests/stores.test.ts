@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { coalesceTokens, createConfigStore, createTranscriptStore } from '../src/lib/stores.svelte';
+import { coalesceTokens, createConfigStore, createTranscriptStore, splitByLanguage } from '../src/lib/stores.svelte';
+import type { TranscriptLine } from '../src/types';
+
+const line = (text: string, language: string | null, ts_ms: number, status: 'original' | 'translation' = 'original'): TranscriptLine =>
+  ({ ts_ms, status, text, language, chip: null, live: false });
 
 describe('transcript store', () => {
   it('appends finals and clears live text on commit', () => {
@@ -199,5 +203,56 @@ describe('coalesceTokens (past-session viewer)', () => {
     ]);
     expect(out.original.map((l) => l.text)).toEqual(['a1', 'b1 b2']);
     expect(out.translation.map((l) => l.text)).toEqual(['b1-trans']);
+  });
+});
+
+describe('splitByLanguage (face-to-face panes)', () => {
+  it('puts language_a lines in far, the other language in near', () => {
+    const { far, near } = splitByLanguage(
+      [line('你好', 'zh', 1), line('Xin chào', 'vi', 2)],
+      'zh',
+    );
+    expect(far.map((l) => l.text)).toEqual(['你好']);
+    expect(near.map((l) => l.text)).toEqual(['Xin chào']);
+  });
+
+  it('merges original + translation, ordered by ts_ms, into the matching pane', () => {
+    // A (zh) says 你好 → translated to vi; B (vi) says Cảm ơn → translated to zh.
+    const { far, near } = splitByLanguage(
+      [
+        line('你好', 'zh', 10, 'original'),
+        line('Xin chào', 'vi', 11, 'translation'),
+        line('Cảm ơn', 'vi', 20, 'original'),
+        line('谢谢', 'zh', 21, 'translation'),
+      ],
+      'zh',
+    );
+    // Each reader gets a coherent monolingual stream in chronological order.
+    expect(far.map((l) => l.text)).toEqual(['你好', '谢谢']);
+    expect(near.map((l) => l.text)).toEqual(['Xin chào', 'Cảm ơn']);
+  });
+
+  it('normalizes region suffix and casing (zh-CN / ZH match zh)', () => {
+    const { far, near } = splitByLanguage(
+      [line('a', 'zh-CN', 1), line('b', 'ZH', 2), line('c', 'vi', 3)],
+      'zh',
+    );
+    expect(far.map((l) => l.text)).toEqual(['a', 'b']);
+    expect(near.map((l) => l.text)).toEqual(['c']);
+  });
+
+  it('SHIP-BREAKER: an unexpected/null tag never vanishes — it falls to near', () => {
+    const { far, near } = splitByLanguage(
+      [line('x', 'fr', 1), line('y', null, 2), line('z', 'zh', 3)],
+      'zh',
+    );
+    expect(far.map((l) => l.text)).toEqual(['z']);
+    expect(near.map((l) => l.text)).toEqual(['x', 'y']); // nothing lost
+  });
+
+  it('does not mutate the input array order', () => {
+    const input = [line('a', 'zh', 5), line('b', 'vi', 1)];
+    splitByLanguage(input, 'zh');
+    expect(input.map((l) => l.text)).toEqual(['a', 'b']); // original order intact
   });
 });
