@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { transcript, splitByLanguage, normLang, coalesceTokens } from '../lib/stores.svelte';
   import {
-    onCoreEvent, startSession, stopSession, getConfig, setConfig, hasApiKey, setApiKey,
+    onCoreEvent, startSession, stopSession, getConfig, setConfig, hasApiKey, setApiKey, clearApiKey,
     listSessions, getSession, deleteSession,
     type CoreEvent,
   } from '../lib/ipc';
@@ -25,7 +25,7 @@
 
   // History: `mode` switches the whole view between live capture, the saved-
   // session list, and read-only replay of a chosen past session.
-  let mode = $state<'live' | 'list' | 'replay'>('live');
+  let mode = $state<'live' | 'list' | 'replay' | 'settings'>('live');
   let sessions = $state<SessionRow[]>([]);
   let pastOriginal = $state<TranscriptLine[]>([]);
   let pastTranslation = $state<TranscriptLine[]>([]);
@@ -142,7 +142,8 @@
     mode = 'replay';
   }
   function backToList() { mode = 'list'; viewing = null; }
-  function exitHistory() { mode = 'live'; viewing = null; pastOriginal = []; pastTranslation = []; }
+  function openSettings() { mode = 'settings'; }
+  function exitToLive() { mode = 'live'; viewing = null; pastOriginal = []; pastTranslation = []; }
   async function removeSession(row: SessionRow) {
     const langs = `${row.lang_a.toUpperCase()}→${row.lang_b.toUpperCase()}`;
     if (!confirm(`Delete the ${langs} session from ${formatTime(row.started_at)}?`)) return;
@@ -155,6 +156,10 @@
     await setApiKey(ACCOUNT, keyInput.trim());
     keyInput = '';
     hasKey = true;
+  }
+  async function clearKey() {
+    await clearApiKey(ACCOUNT);
+    hasKey = false;
   }
 
   onMount(async () => {
@@ -178,7 +183,7 @@
   {:else if mode === 'list'}
     <header class="hh">
       <span>History</span>
-      <button class="hclose" onclick={exitHistory} aria-label="Close history">✕</button>
+      <button class="hclose" onclick={exitToLive} aria-label="Close history">✕</button>
     </header>
     <div class="hist">
       {#if sessions.length === 0}
@@ -195,6 +200,30 @@
           </div>
         {/each}
       {/if}
+    </div>
+  {:else if mode === 'settings' && cfg}
+    <header class="hh">
+      <span>Settings</span>
+      <button class="hclose" onclick={exitToLive} aria-label="Close settings">✕</button>
+    </header>
+    <div class="settings">
+      <section class="sset">
+        <div class="slabel">Soniox API key</div>
+        <input class="sinput" type="password" autocomplete="off"
+               placeholder={hasKey ? '•••••••• (saved)' : 'sk_…'}
+               bind:value={keyInput} aria-label="Soniox API key" />
+        <div class="sbtns">
+          <button class="sbtn-primary" onclick={saveKey}>Save</button>
+          {#if hasKey}<button class="sbtn" onclick={clearKey}>Remove</button>{/if}
+        </div>
+      </section>
+      <section class="sset">
+        <label class="agc-set">
+          <input type="checkbox" bind:checked={cfg.mic_agc} onchange={toggleAgc} />
+          Auto gain control
+        </label>
+        <p class="sdesc">Lets the mic automatically adjust loudness. Off by default — leave it off to set the level yourself with the gain slider.</p>
+      </section>
     </div>
   {:else if mode === 'replay' && viewing}
     <FacePane lines={pastSplit.far} live={[]} follow={false} />
@@ -222,13 +251,13 @@
       </div>
       <div class="gain">
         <button class="hist-btn" onclick={openHistory} disabled={recording} aria-label="History">🕘</button>
+        <button class="hist-btn" onclick={openSettings} disabled={recording} aria-label="Settings">⚙️</button>
         <span class="gl" aria-hidden="true">🎤</span>
         <input class="gslider" type="range" min="0.5" max="4" step="0.1"
                bind:value={cfg.mic_gain}
                oninput={() => cfg && setMicGain(cfg.mic_gain)} onchange={persistCfg}
                aria-label="Mic sensitivity" />
         <span class="gv">{cfg.mic_gain.toFixed(1)}×</span>
-        <label class="agc"><input type="checkbox" bind:checked={cfg.mic_agc} onchange={toggleAgc} /> AGC</label>
       </div>
       {#if err}<p class="err">{err}</p>{/if}
       {#if recording || mic}
@@ -284,8 +313,26 @@
   .gl { font-size: 15px; }
   .gslider { flex: 1; min-width: 0; accent-color: var(--vt-accent); }
   .gv { font: 12px ui-monospace, monospace; color: var(--vt-muted); min-width: 2.6em; text-align: right; }
-  .agc { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vt-muted); white-space: nowrap; }
-  .agc input { accent-color: var(--vt-accent); }
+  /* Settings screen */
+  .settings { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+  .sset { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--vt-border); }
+  .slabel { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .sinput {
+    width: 100%; padding: 10px; font-size: 15px; border-radius: 8px; margin-bottom: 10px;
+    background: var(--vt-surface); color: var(--vt-text); border: 1px solid var(--vt-border);
+  }
+  .sbtns { display: flex; gap: 8px; }
+  .sbtn-primary {
+    padding: 8px 16px; border-radius: 8px; border: none; font-weight: 600;
+    background: var(--vt-accent); color: var(--vt-accent-ink);
+  }
+  .sbtn {
+    padding: 8px 16px; border-radius: 8px;
+    background: transparent; color: var(--vt-muted); border: 1px solid var(--vt-border);
+  }
+  .agc-set { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--vt-text); }
+  .agc-set input { accent-color: var(--vt-accent); width: 18px; height: 18px; }
+  .sdesc { margin: 8px 0 0; font-size: 13px; line-height: 1.4; color: var(--vt-muted); }
   .err { color: var(--vt-danger); margin: 6px 0 0; font-size: 13px; }
   .diag { font: 11px ui-monospace, monospace; color: var(--vt-muted); margin: 6px 0 0; }
 
