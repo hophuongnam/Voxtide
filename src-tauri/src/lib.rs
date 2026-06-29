@@ -18,31 +18,36 @@ pub fn run() {
 
     tracing_subscriber::fmt::try_init().ok();
 
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
         // MUST be the first plugin: a second launch is killed during plugin
         // initialization, before .setup() opens the shared DB below. Without
         // the guard, the second instance's Store::open reconcile stamped the
         // FIRST instance's live session as ended (ended_at = started_at,
         // duration 0); on Windows it also panicked on the hotkey conflict.
         // The callback runs in the FIRST instance: surface its window.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        // Auto-persist main window size + position to ~/Library/Application Support/Voxtide/.window-state.
-        // The overlay window is denylisted: it has a fixed-by-design hover-strip layout that
-        // shouldn't be perturbed by restored state from a prior session.
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_denylist(&["overlay"])
-                .build(),
-        )
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }))
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
+            // Auto-persist main window size + position to ~/Library/Application Support/Voxtide/.window-state.
+            // The overlay window is denylisted: it has a fixed-by-design hover-strip layout that
+            // shouldn't be perturbed by restored state from a prior session.
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_denylist(&["overlay"])
+                    .build(),
+            );
+    }
+    builder = builder.plugin(tauri_plugin_opener::init());
+    let app = builder
         .on_window_event(|_window, _event| {
             // macOS pattern: red-traffic-light closes the window but keeps the app
             // running in the dock; dock-click re-shows it (handled in the run loop).
@@ -67,7 +72,8 @@ pub fn run() {
             // exits one during plugin init, which precedes setup). block_on
             // is legal here: setup runs on the plain (non-async) main thread
             // — see the runtime comment at the top of main().
-            let state = tauri::async_runtime::block_on(state::init())?;
+            let dir = state::data_dir(app.handle());
+            let state = tauri::async_runtime::block_on(state::init(dir))?;
             // Subscribe BEFORE handing state to Tauri so we hold a reference to the controller.
             // This single persistent forwarder replaces the per-call spawns that were previously
             // in `lifecycle::start_session`, which leaked one task per start/stop cycle.
@@ -91,14 +97,17 @@ pub fn run() {
             // the app is fully usable without it, and an OS-level conflict
             // with another app's shortcut is an expected runtime condition.
             // (A `?` here aborted the whole startup.)
-            let accel = app
-                .state::<state::AppState>()
-                .config
-                .load()
-                .map(|c| c.hotkey)
-                .unwrap_or_else(|_| voxtide_core::config::AppConfig::default().hotkey);
-            if let Err(e) = hotkey::register(app.handle(), &accel) {
-                tracing::warn!(?e, accel = %accel, "global hotkey registration failed; continuing without a hotkey");
+            #[cfg(desktop)]
+            {
+                let accel = app
+                    .state::<state::AppState>()
+                    .config
+                    .load()
+                    .map(|c| c.hotkey)
+                    .unwrap_or_else(|_| voxtide_core::config::AppConfig::default().hotkey);
+                if let Err(e) = hotkey::register(app.handle(), &accel) {
+                    tracing::warn!(?e, accel = %accel, "global hotkey registration failed; continuing without a hotkey");
+                }
             }
             Ok(())
         })
@@ -117,9 +126,9 @@ pub fn run() {
             commands::sessions::delete_session,
             commands::lifecycle::start_session,
             commands::lifecycle::stop_session,
-            commands::overlay::show_overlay,
-            commands::overlay::hide_overlay,
-            commands::overlay::set_overlay_click_through,
+            #[cfg(desktop)] commands::overlay::show_overlay,
+            #[cfg(desktop)] commands::overlay::hide_overlay,
+            #[cfg(desktop)] commands::overlay::set_overlay_click_through,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

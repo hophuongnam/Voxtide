@@ -2,6 +2,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use tauri::AppHandle;
+#[cfg(target_os = "android")]
+use tauri::Manager;
 use voxtide_core::config::ConfigStore;
 use voxtide_core::persistence::Store;
 use voxtide_core::session::SessionController;
@@ -17,14 +20,23 @@ pub struct AppState {
     pub overlay_visible: Arc<AtomicBool>,
 }
 
-pub fn data_dir() -> PathBuf {
-    dirs::data_dir()
-        .map(|d| d.join("Voxtide"))
-        .unwrap_or_else(|| PathBuf::from("./voxtide-data"))
+pub fn data_dir(app: &AppHandle) -> PathBuf {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app; // desktop path is UNCHANGED — do NOT switch to app_data_dir()
+        dirs::data_dir()
+            .map(|d| d.join("Voxtide"))
+            .unwrap_or_else(|| PathBuf::from("./voxtide-data"))
+    }
+    #[cfg(target_os = "android")]
+    {
+        app.path()
+            .app_data_dir()
+            .expect("android app_data_dir unavailable")
+    }
 }
 
-pub async fn init() -> voxtide_core::Result<AppState> {
-    let dir = data_dir();
+pub async fn init(dir: PathBuf) -> voxtide_core::Result<AppState> {
     std::fs::create_dir_all(&dir)?;
     let store = Store::open(&dir.join("voxtide.db")).await?;
     Ok(AppState {
