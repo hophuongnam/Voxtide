@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { transcript, splitByLanguage, normLang } from '../lib/stores.svelte';
+  import { transcript, splitByLanguage, normLang, coalesceTokens } from '../lib/stores.svelte';
   import {
     onCoreEvent, startSession, stopSession, getConfig, setConfig, hasApiKey, setApiKey,
+    listSessions, getSession,
     type CoreEvent,
   } from '../lib/ipc';
   import { startMicCapture, stopMicCapture, setMicGain, setMicAgc, type MicStats } from '../lib/miccapture';
   import { applyTheme } from '../theme/theme';
   import { LANG_CODES, LANG_NAMES } from '../lib/languages';
+  import { formatTime, formatDuration } from '../lib/format';
   import FacePane from '../components/FacePane.svelte';
-  import type { AppConfig } from '../types';
+  import type { AppConfig, SessionRow, TranscriptLine } from '../types';
 
   const ACCOUNT = 'default';
   let cfg = $state<AppConfig | null>(null);
@@ -20,6 +22,20 @@
   let mic = $state<MicStats | null>(null); // pipeline vitals for the diag readout
   let events = $state(0); // transcript events received this session
   let unlisten: (() => void) | null = null;
+
+  // History: `mode` switches the whole view between live capture, the saved-
+  // session list, and read-only replay of a chosen past session.
+  let mode = $state<'live' | 'list' | 'replay'>('live');
+  let sessions = $state<SessionRow[]>([]);
+  let pastOriginal = $state<TranscriptLine[]>([]);
+  let pastTranslation = $state<TranscriptLine[]>([]);
+  let viewing = $state<SessionRow | null>(null);
+  // Replay buckets by the VIEWED session's language_a (which may differ from the
+  // current config), so an old en↔vi session splits correctly even if you've
+  // since switched to zh↔vi.
+  const pastSplit = $derived(viewing
+    ? splitByLanguage([...pastOriginal, ...pastTranslation], viewing.lang_a)
+    : { far: [] as TranscriptLine[], near: [] as TranscriptLine[] });
 
   // Far pane = language_a (the person across the table, rotated 180°); near pane
   // = everything else (you). splitByLanguage merges original+translation so each
@@ -113,6 +129,21 @@
     await setConfig(cfg);
   }
 
+  async function openHistory() {
+    sessions = await listSessions();
+    mode = 'list';
+  }
+  async function openSession(row: SessionRow) {
+    const { tokens } = await getSession(row.id);
+    const c = coalesceTokens(tokens);
+    pastOriginal = c.original;
+    pastTranslation = c.translation;
+    viewing = row;
+    mode = 'replay';
+  }
+  function backToList() { mode = 'list'; viewing = null; }
+  function exitHistory() { mode = 'live'; viewing = null; pastOriginal = []; pastTranslation = []; }
+
   async function saveKey() {
     if (!keyInput.trim()) return;
     await setApiKey(ACCOUNT, keyInput.trim());
@@ -138,11 +169,39 @@
       <input type="password" placeholder="Soniox API key" bind:value={keyInput} />
       <button onclick={saveKey}>Save key</button>
     </div>
+  {:else if mode === 'list'}
+    <header class="hh">
+      <span>History</span>
+      <button class="hclose" onclick={exitHistory} aria-label="Close history">✕</button>
+    </header>
+    <div class="hist">
+      {#if sessions.length === 0}
+        <p class="empty">No saved sessions yet.</p>
+      {:else}
+        {#each sessions as s}
+          <button class="srow" onclick={() => openSession(s)}>
+            <span class="stime">{formatTime(s.started_at)}</span>
+            <span class="slangs">{s.lang_a.toUpperCase()} → {s.lang_b.toUpperCase()}</span>
+            <span class="sdur">{s.duration_ms ? formatDuration(s.duration_ms) : '—'}</span>
+          </button>
+        {/each}
+      {/if}
+    </div>
+  {:else if mode === 'replay' && viewing}
+    <FacePane lines={pastSplit.far} live={[]} follow={false} />
+    <div class="bar">
+      <div class="ctl">
+        <button class="swap" onclick={backToList} aria-label="Back to sessions">‹ Sessions</button>
+        <span class="rinfo">{viewing.lang_a.toUpperCase()} → {viewing.lang_b.toUpperCase()} · {formatTime(viewing.started_at)}</span>
+      </div>
+    </div>
+    <FacePane lines={pastSplit.near} live={[]} follow={false} />
   {:else if cfg}
     <FacePane lines={split.far} live={live.far} rotated />
 
     <div class="bar">
       <div class="ctl">
+        <button class="hist-btn" onclick={openHistory} disabled={recording} aria-label="History">🕘</button>
         <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
@@ -220,4 +279,27 @@
   .agc input { accent-color: var(--vt-accent); }
   .err { color: var(--vt-danger); margin: 6px 0 0; font-size: 13px; }
   .diag { font: 11px ui-monospace, monospace; color: var(--vt-muted); margin: 6px 0 0; }
+
+  .hist-btn {
+    padding: 8px 10px; font-size: 16px; border-radius: 8px; flex: none;
+    background: var(--vt-bg); color: var(--vt-text); border: 1px solid var(--vt-border);
+  }
+  .hist-btn:disabled { opacity: 0.5; }
+  /* History list + replay */
+  .hh {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--vt-border); font-weight: 600;
+  }
+  .hclose { background: none; border: none; color: var(--vt-text); font-size: 20px; }
+  .hist { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; }
+  .empty { color: var(--vt-muted); text-align: center; padding: 48px 0; }
+  .srow {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 12px; margin-bottom: 6px; border-radius: 8px; text-align: left;
+    background: var(--vt-surface); color: var(--vt-text); border: 1px solid var(--vt-border);
+  }
+  .stime { font-size: 15px; }
+  .slangs { font: 12px ui-monospace, monospace; color: var(--vt-muted); }
+  .sdur { margin-left: auto; font: 12px ui-monospace, monospace; color: var(--vt-subtle); }
+  .rinfo { font: 12px ui-monospace, monospace; color: var(--vt-muted); margin-left: 8px; }
 </style>

@@ -9,8 +9,11 @@
      *  the table. Rotation is paint-only — scrollTop/scrollHeight stay in DOM
      *  coords, so the follow-tail math below is identical for both panes. */
     rotated?: boolean;
+    /** Auto-snap to the newest line as content grows (live capture). False for
+     *  replay of a past session, so it opens at the START (oldest) for reading. */
+    follow?: boolean;
   }
-  const { lines, live, rotated = false }: Props = $props();
+  const { lines, live, rotated = false, follow = true }: Props = $props();
 
   let el = $state<HTMLElement | null>(null);
   let atBottom = true;
@@ -38,7 +41,7 @@
   $effect(() => {
     contentLen; // reactive dep
     const e = el;
-    if (!atBottom || !e) return;
+    if (!follow || !atBottom || !e) return;
     requestAnimationFrame(() => { e.scrollTop = e.scrollHeight; });
   });
 </script>
