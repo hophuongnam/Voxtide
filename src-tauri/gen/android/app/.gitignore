@@ -1,5 +1,9 @@
 /src/main/**/generated
 /src/main/jniLibs/**/*.so
+# ...except the NDK C++ runtime: it must travel with the repo or a clean
+# build crashes at dlopen (__cxa_pure_virtual). It is 16 KB-aligned and
+# ABI-stable. libvoxtide_lib.so stays ignored — it is re-symlinked each build.
+!/src/main/jniLibs/arm64-v8a/libc++_shared.so
 /src/main/assets/tauri.conf.json
 /tauri.build.gradle.kts
 /proguard-tauri.pro

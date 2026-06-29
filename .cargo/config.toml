@@ -1,0 +1,8 @@
+# 16 KB ELF page alignment for Android 15+ devices. libvoxtide_lib.so LOAD
+# segments default to 4 KB (0x1000); this aligns them to 16 KB (0x4000) so the
+# lib mmaps on 16 KB-page devices and clears Android's alignment check.
+# Android-only — desktop/host targets are unaffected.
+# ponytail: one linker arg covers it; the NDK libc++_shared.so is already
+# 16 KB-aligned, so nothing else needs a flag.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
