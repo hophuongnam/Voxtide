@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
+    "android:release": "scripts/android-release.sh",
     "icon:master": "tsx scripts/generate-master-icon.ts",
     "icon:build": "tsx scripts/build-icons.ts"
   },

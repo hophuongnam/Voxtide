@@ -10,7 +10,7 @@
   // Access-Control-Allow-Origin: * so the WebView fetch isn't CORS-blocked, and
   // 60 req/hr/IP is ample for one check per launch. Any failure (offline, rate
   // limit, bad JSON) stays silent — an update check must never break the app.
-  const RELEASES_API = 'https://api.github.com/repos/hophuongnam/Voxtide/releases/latest';
+  const RELEASES_API = 'https://api.github.com/repos/hophuongnam/Voxtide/releases';
 
   let latest = $state<string | null>(null);
   let url = $state<string | null>(null);
@@ -21,15 +21,26 @@
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     try {
       const current = await getVersion();
-      const res = await fetch(RELEASES_API);
+      // List releases (newest first) and take the newest that ships an .apk —
+      // /releases/latest can be a desktop-only release with no Android asset.
+      const res = await fetch(`${RELEASES_API}?per_page=30`);
       if (!res.ok) return;
-      const rel = await res.json();
-      const tag = String(rel.tag_name ?? '').replace(/^v/, '');
-      if (!tag || !isNewer(tag, current)) return;
-      // Prefer the .apk asset; fall back to the release page if it isn't attached.
-      const apk = (rel.assets ?? []).find((a: { name?: string }) => String(a.name ?? '').endsWith('.apk'));
-      url = apk?.browser_download_url ?? rel.html_url ?? null;
-      if (url) latest = tag;
+      const releases: Array<{
+        draft?: boolean; prerelease?: boolean; tag_name?: string;
+        assets?: { name?: string; browser_download_url?: string }[];
+      }> = await res.json();
+      for (const rel of releases) {
+        if (rel.draft || rel.prerelease) continue;
+        const apk = (rel.assets ?? []).find((a) => String(a.name ?? '').endsWith('.apk'));
+        if (!apk) continue;
+        // Strip any tag prefix (v / android-v) down to the bare semver.
+        const version = String(rel.tag_name ?? '').replace(/^[^\d]*/, '');
+        if (version && isNewer(version, current)) {
+          latest = version;
+          url = apk.browser_download_url ?? null;
+        }
+        break; // the first .apk-bearing release is the newest Android release
+      }
     } catch (e) {
       console.warn('update check failed', e);
     }
