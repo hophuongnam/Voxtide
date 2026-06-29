@@ -42,7 +42,6 @@ impl AudioSource for WebViewMicSource {
 
         // Register the live sink so feed_mic_pcm pushes into THIS session.
         *self.feed.lock().unwrap() = Some(pcm_tx);
-        let feed = self.feed.clone();
 
         tokio::spawn(async move {
             let mut chunker = Chunker::new();
@@ -56,7 +55,6 @@ impl AudioSource for WebViewMicSource {
                             for frame in chunker.push(&i16s) {
                                 if frame_tx.send(frame).await.is_err() {
                                     // consumer (session worker) gone
-                                    *feed.lock().unwrap() = None;
                                     return;
                                 }
                             }
@@ -65,8 +63,6 @@ impl AudioSource for WebViewMicSource {
                     },
                 }
             }
-            // Clear the sink so a stale sender can't linger past the session.
-            *feed.lock().unwrap() = None;
         });
 
         Ok(AudioStream {
@@ -102,14 +98,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_clears_sink_on_stop() {
+    async fn stop_ends_drain_task_without_clearing_slot() {
         let feed = new_mic_feed();
         let stream = WebViewMicSource::new(feed.clone()).start().unwrap();
-        assert!(feed.lock().unwrap().is_some());
-        drop(stream.stop); // dropping the stop sender signals the drain task to exit
-        // give the spawned task a tick to clear the sink
-        tokio::task::yield_now().await;
+        let sink = feed.lock().unwrap().clone().expect("sink registered");
+        drop(stream.stop); // signal the drain task to exit
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        assert!(feed.lock().unwrap().is_none());
+        // Drain task exited: its pcm_rx dropped, so the registered sender is now closed.
+        // The slot is intentionally NOT cleared (a dead sender is harmless; next start() overwrites it).
+        assert!(
+            sink.send(vec![0.0f32]).await.is_err(),
+            "drain task should have exited and closed its receiver"
+        );
     }
 }
