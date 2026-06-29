@@ -3,7 +3,7 @@
   import { transcript, splitByLanguage, normLang, coalesceTokens } from '../lib/stores.svelte';
   import {
     onCoreEvent, startSession, stopSession, getConfig, setConfig, hasApiKey, setApiKey,
-    listSessions, getSession,
+    listSessions, getSession, deleteSession,
     type CoreEvent,
   } from '../lib/ipc';
   import { startMicCapture, stopMicCapture, setMicGain, setMicAgc, type MicStats } from '../lib/miccapture';
@@ -143,6 +143,12 @@
   }
   function backToList() { mode = 'list'; viewing = null; }
   function exitHistory() { mode = 'live'; viewing = null; pastOriginal = []; pastTranslation = []; }
+  async function removeSession(row: SessionRow) {
+    const langs = `${row.lang_a.toUpperCase()}→${row.lang_b.toUpperCase()}`;
+    if (!confirm(`Delete the ${langs} session from ${formatTime(row.started_at)}?`)) return;
+    await deleteSession(row.id);
+    sessions = await listSessions();
+  }
 
   async function saveKey() {
     if (!keyInput.trim()) return;
@@ -179,11 +185,14 @@
         <p class="empty">No saved sessions yet.</p>
       {:else}
         {#each sessions as s}
-          <button class="srow" onclick={() => openSession(s)}>
-            <span class="stime">{formatTime(s.started_at)}</span>
-            <span class="slangs">{s.lang_a.toUpperCase()} → {s.lang_b.toUpperCase()}</span>
-            <span class="sdur">{s.duration_ms ? formatDuration(s.duration_ms) : '—'}</span>
-          </button>
+          <div class="srow">
+            <button class="srow-main" onclick={() => openSession(s)}>
+              <span class="stime">{formatTime(s.started_at)}</span>
+              <span class="slangs">{s.lang_a.toUpperCase()} → {s.lang_b.toUpperCase()}</span>
+              <span class="sdur">{s.duration_ms ? formatDuration(s.duration_ms) : '—'}</span>
+            </button>
+            <button class="srow-del" onclick={() => removeSession(s)} aria-label="Delete session">🗑</button>
+          </div>
         {/each}
       {/if}
     </div>
@@ -201,7 +210,6 @@
 
     <div class="bar">
       <div class="ctl">
-        <button class="hist-btn" onclick={openHistory} disabled={recording} aria-label="History">🕘</button>
         <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
@@ -213,6 +221,7 @@
                 aria-label={recording ? 'Stop' : 'Record'}>{recording ? '■' : '●'}</button>
       </div>
       <div class="gain">
+        <button class="hist-btn" onclick={openHistory} disabled={recording} aria-label="History">🕘</button>
         <span class="gl" aria-hidden="true">🎤</span>
         <input class="gslider" type="range" min="0.5" max="4" step="0.1"
                bind:value={cfg.mic_gain}
@@ -293,10 +302,15 @@
   .hclose { background: none; border: none; color: var(--vt-text); font-size: 20px; }
   .hist { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; }
   .empty { color: var(--vt-muted); text-align: center; padding: 48px 0; }
-  .srow {
-    display: flex; align-items: center; gap: 10px; width: 100%;
-    padding: 12px; margin-bottom: 6px; border-radius: 8px; text-align: left;
+  .srow { display: flex; align-items: stretch; gap: 6px; margin-bottom: 6px; }
+  .srow-main {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+    padding: 12px; border-radius: 8px; text-align: left;
     background: var(--vt-surface); color: var(--vt-text); border: 1px solid var(--vt-border);
+  }
+  .srow-del {
+    flex: none; padding: 0 14px; border-radius: 8px; font-size: 16px;
+    background: var(--vt-surface); color: var(--vt-muted); border: 1px solid var(--vt-border);
   }
   .stime { font-size: 15px; }
   .slangs { font: 12px ui-monospace, monospace; color: var(--vt-muted); }
