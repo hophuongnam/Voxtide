@@ -18,6 +18,8 @@ pub struct AppState {
     /// commands) so the event forwarder can skip emitting every token
     /// event into a hidden webview.
     pub overlay_visible: Arc<AtomicBool>,
+    /// Live sink for WebView-pushed mic PCM (Android Path B). Empty on desktop.
+    pub mic_feed: voxtide_core::audio::webview_mic::MicFeed,
 }
 
 pub fn data_dir(app: &AppHandle) -> PathBuf {
@@ -44,5 +46,6 @@ pub async fn init(dir: PathBuf) -> voxtide_core::Result<AppState> {
         keychain: Keychain::new(dir.join("secrets.json")),
         config: ConfigStore::at(dir.join("config.json")),
         overlay_visible: Arc::new(AtomicBool::new(false)),
+        mic_feed: voxtide_core::audio::webview_mic::new_mic_feed(),
     })
 }

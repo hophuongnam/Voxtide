@@ -86,10 +86,20 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
     // requested. An empty `device_id` from the frontend means "use the system default".
     let source: Box<dyn AudioSource> = match req.mode {
         Mode::Conversation => {
-            if req.device_id.is_empty() {
-                Box::new(MicSource::default_device().map_err(|e| StartError::classify(&e, mode))?)
-            } else {
-                Box::new(MicSource::by_id(&req.device_id))
+            #[cfg(target_os = "android")]
+            {
+                let _ = &req.device_id; // device selection N/A on Android (single WebView mic)
+                Box::new(voxtide_core::audio::webview_mic::WebViewMicSource::new(
+                    state.mic_feed.clone(),
+                ))
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                if req.device_id.is_empty() {
+                    Box::new(MicSource::default_device().map_err(|e| StartError::classify(&e, mode))?)
+                } else {
+                    Box::new(MicSource::by_id(&req.device_id))
+                }
             }
         }
         Mode::Meeting => {

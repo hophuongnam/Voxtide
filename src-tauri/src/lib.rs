@@ -142,6 +142,7 @@ pub fn run() {
             commands::config::app_info,
             commands::devices::list_mics,
             commands::devices::list_loopback_sources,
+            commands::devices::feed_mic_pcm,
             commands::sessions::list_sessions,
             commands::sessions::get_session,
             commands::sessions::search_transcripts,

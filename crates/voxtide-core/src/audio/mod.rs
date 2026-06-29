@@ -5,6 +5,7 @@ pub mod loopback;
 pub mod mix;
 pub mod mock;
 pub mod resampler;
+pub mod webview_mic;
 
 #[cfg(target_os = "macos")]
 pub mod macos_loopback;
