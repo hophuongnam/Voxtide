@@ -125,11 +125,17 @@ sandbox, no Android Keystore needed.
 Render platform-conditionally: on Android, mount a new `FaceToFaceView` instead of
 the desktop `MainApp` chrome (detect via Tauri `platform()` / a viewport check).
 
-- **The split view** reuses the existing `Column` / `Line` / `SpeakerChip`
-  renderers. This maps directly onto the desktop two-column (A/B) model — the
-  transcript store already places by `translation_status` (original-left,
-  translation-right) and never branches on mode, so two-way placement is already
-  correct. Mobile just re-lays the two columns as stacked panes:
+- **The split view** reuses the existing `Line` / `SpeakerChip` renderers and the
+  transcript store's data, but **buckets lines by `language`, not by
+  `translation_status`**: pane A = all lines where `language === language_a`, pane
+  B = `language_b`, so each person reads only their own language. (The desktop view
+  buckets by status — original-left/translation-right — which *mixes* languages per
+  column when speakers alternate; correct for one reader, wrong for face-to-face.)
+  A small pure `bucketByLanguage(lines, aCode, bCode)` does the split. **Risk: this
+  is raw string-equality between Soniox's emitted `language` tag and the stored
+  config code — if they differ (region suffix / casing), both panes go silently
+  empty. Confirm the real tags match in Phase 0, and test the no-match case.** Mobile
+  lays the two language panes stacked:
   - **Top pane** = far person's language (`language_a` or `language_b` per the swap
     state), wrapped in `transform: rotate(180deg)`. Rotating a scroll container
     flips visual scroll direction — keep logical "scroll to newest" and let the
@@ -185,6 +191,9 @@ foreground Service); Play Store / AAB / privacy listing; iOS.
 
 - **Path A viability** (cpal Android input in Tauri) — resolved by the Phase 0
   spike; Path B is the de-risked fallback.
+- **Language-tag match** (the silent-empty-panes ship-breaker) — Soniox's emitted
+  `language` tag must string-equal the stored config code for bucketing to fill the
+  panes; observed against real output in Phase 0, normalized if needed.
 - **Rotated-pane follow-tail** — scroll direction under a 180° transform; verified
   during Phase 2.
 - **WebView mic permission** (Path B only) — `onPermissionRequest` wiring on Android.
