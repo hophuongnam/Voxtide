@@ -24,7 +24,9 @@ pub enum FontSize {
     Xl,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// No `Eq`: mic_gain is f32 (NaN breaks Eq's reflexivity). PartialEq is enough —
+// AppConfig is never a hash/btree key. Comparisons (`==`) still work.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     pub language_a: String,
     pub language_b: String,
@@ -45,6 +47,21 @@ pub struct AppConfig {
     /// toolbar toggle survives relaunch.
     #[serde(default)]
     pub meeting_capture_mic: bool,
+    /// Android face-to-face mic input gain — a multiplier applied in the
+    /// WebView's GainNode before PCM reaches Rust (1.0 = unity). User-adjustable
+    /// sensitivity knob; desktop ignores it. `#[serde(default)]` so older
+    /// config.json files (no field) load at unity.
+    #[serde(default = "default_mic_gain")]
+    pub mic_gain: f32,
+    /// Android: enable the browser's automatic gain control on the mic. Off by
+    /// default — the manual `mic_gain` slider is the primary level control, and
+    /// AGC auto-rides the level and fights it. User-toggleable.
+    #[serde(default)]
+    pub mic_agc: bool,
+}
+
+fn default_mic_gain() -> f32 {
+    1.0
 }
 
 impl Default for AppConfig {
@@ -62,6 +79,8 @@ impl Default for AppConfig {
             font_size: FontSize::M,
             show_pinyin: false,
             meeting_capture_mic: false,
+            mic_gain: 1.0,
+            mic_agc: false,
         }
     }
 }

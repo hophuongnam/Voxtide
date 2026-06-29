@@ -21,6 +21,7 @@ registerProcessor('mic-capture', MicCapture);
 let audioCtx: AudioContext | null = null;
 let node: AudioWorkletNode | null = null;
 let stream: MediaStream | null = null;
+let gainNode: GainNode | null = null;
 
 /** Live pipeline vitals for the on-device diagnostic readout. `batches` climbing
  *  proves getUserMedia+worklet+posting work; `sampleRate` must be 16000 or Soniox
@@ -29,19 +30,21 @@ export interface MicStats { state: string; sampleRate: number; batches: number; 
 
 /** Start capturing the mic and streaming PCM to Rust. Throws if mic permission
  *  is denied (NotAllowedError) — the caller surfaces that. `onStats` (optional)
- *  reports pipeline vitals for the on-device diagnostic readout. */
-export async function startMicCapture(onStats?: (s: MicStats) => void): Promise<void> {
+ *  reports pipeline vitals for the on-device diagnostic readout. `gain` is the
+ *  initial input-gain multiplier (1.0 = unity); change it live via setMicGain.
+ *  `agc` enables the browser's automatic gain control (live via setMicAgc). */
+export async function startMicCapture(onStats?: (s: MicStats) => void, gain = 1, agc = false): Promise<void> {
   let batches = 0;
   const report = () =>
     onStats?.({ state: audioCtx?.state ?? '—', sampleRate: audioCtx?.sampleRate ?? 0, batches });
 
-  // Far-field table pickup: keep autoGainControl (boosts the quieter person
-  // across the table) but disable noiseSuppression + echoCancellation — the
-  // aggressive mobile variants assume close-talk and gate out far/quiet speech,
-  // and there's no playback to echo-cancel with a single shared mic. Bare
-  // `{audio:true}` leaves all three on, which is why far speech got dropped.
+  // Far-field capture: noiseSuppression + echoCancellation always OFF (close-talk
+  // noise suppression gates far/quiet speech; no playback to echo-cancel on a
+  // single shared mic). autoGainControl is user-toggleable (`agc`) — default OFF
+  // so the manual mic_gain slider is the primary, predictable level control (AGC
+  // auto-rides the level and fights the knob), but some users prefer it on.
   stream = await navigator.mediaDevices.getUserMedia({
-    audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: false },
+    audio: { autoGainControl: agc, noiseSuppression: false, echoCancellation: false },
   });
   // Force 16 kHz so Rust receives the pipeline's native rate (no resampler).
   audioCtx = new AudioContext({ sampleRate: 16000 });
@@ -57,6 +60,10 @@ export async function startMicCapture(onStats?: (s: MicStats) => void): Promise<
   await audioCtx.audioWorklet.addModule(url);
   URL.revokeObjectURL(url);
   const srcNode = audioCtx.createMediaStreamSource(stream);
+  // User-adjustable input gain (the sensitivity knob), live via setMicGain().
+  // f32_to_i16 on the Rust side clamps, so gain > 1 hard-clips rather than wraps.
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = gain;
   node = new AudioWorkletNode(audioCtx, 'mic-capture');
   // Each ~100 ms batch (plain number[]) → Rust Vec<f32>. JSON-serializable as-is.
   node.port.onmessage = (e) => {
@@ -64,15 +71,30 @@ export async function startMicCapture(onStats?: (s: MicStats) => void): Promise<
     report();
     void invoke('feed_mic_pcm', { samples: e.data });
   };
-  srcNode.connect(node);
+  srcNode.connect(gainNode);
+  gainNode.connect(node);
   node.connect(audioCtx.destination); // keep the graph pulling; the worklet outputs silence (no echo)
+}
+
+/** Live-adjust the input gain (1.0 = unity). No-op when not capturing. */
+export function setMicGain(gain: number): void {
+  if (gainNode) gainNode.gain.value = gain;
+}
+
+/** Live-toggle automatic gain control on the active mic track. Best-effort: some
+ *  WebViews ignore live applyConstraints, in which case it takes effect on the
+ *  next startMicCapture from the persisted config. No-op when not capturing. */
+export function setMicAgc(agc: boolean): void {
+  void stream?.getAudioTracks()[0]?.applyConstraints({ autoGainControl: agc }).catch(() => {});
 }
 
 export function stopMicCapture(): void {
   node?.disconnect();
+  gainNode?.disconnect();
   stream?.getTracks().forEach((t) => t.stop());
   void audioCtx?.close();
   node = null;
+  gainNode = null;
   stream = null;
   audioCtx = null;
 }

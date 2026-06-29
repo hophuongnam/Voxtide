@@ -17,6 +17,10 @@ export interface AppConfig {
   show_pinyin: boolean;
   // System Audio mode only: also capture the local mic (blended in → two-way).
   meeting_capture_mic: boolean;
+  // Android face-to-face mic input gain (GainNode multiplier; 1.0 = unity).
+  mic_gain: number;
+  // Android: browser automatic gain control on the mic (off by default).
+  mic_agc: boolean;
 }
 
 export interface SessionRow {

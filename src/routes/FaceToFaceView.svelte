@@ -5,7 +5,7 @@
     onCoreEvent, startSession, stopSession, getConfig, setConfig, hasApiKey, setApiKey,
     type CoreEvent,
   } from '../lib/ipc';
-  import { startMicCapture, stopMicCapture, type MicStats } from '../lib/miccapture';
+  import { startMicCapture, stopMicCapture, setMicGain, setMicAgc, type MicStats } from '../lib/miccapture';
   import { applyTheme } from '../theme/theme';
   import { LANG_CODES, LANG_NAMES } from '../lib/languages';
   import FacePane from '../components/FacePane.svelte';
@@ -76,7 +76,7 @@
         api_key_account: ACCOUNT,
       });
       try {
-        await startMicCapture((s) => (mic = s)); // triggers the WebView mic permission prompt
+        await startMicCapture((s) => (mic = s), cfg.mic_gain, cfg.mic_agc); // triggers the WebView mic permission prompt
       } catch (e) {
         stopMicCapture(); // release any partially-acquired stream/context
         await stopSession();
@@ -92,10 +92,19 @@
     await stopSession();
   }
 
-  // Persist immediately — every UI pick survives without a save button. Languages
-  // lock at session start, so the selects/swap are disabled while recording.
-  async function saveLangs() {
+  // Persist immediately — every UI pick survives without a save button (langs,
+  // swap, mic gain). Languages lock at session start so their selects/swap are
+  // disabled while recording; the gain slider stays live (GainNode is mutable).
+  async function persistCfg() {
     if (cfg) await setConfig(cfg);
+  }
+
+  // AGC toggle: apply live to the active track (best-effort) + persist; takes
+  // effect on next record if the WebView ignores the live change.
+  function toggleAgc() {
+    if (!cfg) return;
+    setMicAgc(cfg.mic_agc);
+    persistCfg();
   }
 
   async function swap() {
@@ -134,15 +143,24 @@
 
     <div class="bar">
       <div class="ctl">
-        <select bind:value={cfg.language_a} onchange={saveLangs} disabled={recording}>
+        <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
         <button class="swap" onclick={swap} disabled={recording} aria-label="Swap languages">⇄</button>
-        <select bind:value={cfg.language_b} onchange={saveLangs} disabled={recording}>
+        <select bind:value={cfg.language_b} onchange={persistCfg} disabled={recording}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
         <button class="rec" class:on={recording} onclick={() => (recording ? stop() : record())}
                 aria-label={recording ? 'Stop' : 'Record'}>{recording ? '■' : '●'}</button>
+      </div>
+      <div class="gain">
+        <span class="gl" aria-hidden="true">🎤</span>
+        <input class="gslider" type="range" min="0.5" max="4" step="0.1"
+               bind:value={cfg.mic_gain}
+               oninput={() => cfg && setMicGain(cfg.mic_gain)} onchange={persistCfg}
+               aria-label="Mic sensitivity" />
+        <span class="gv">{cfg.mic_gain.toFixed(1)}×</span>
+        <label class="agc"><input type="checkbox" bind:checked={cfg.mic_agc} onchange={toggleAgc} /> AGC</label>
       </div>
       {#if err}<p class="err">{err}</p>{/if}
       {#if recording || mic}
@@ -194,6 +212,12 @@
     background: var(--vt-accent); color: var(--vt-accent-ink); border: none;
   }
   .rec.on { background: var(--vt-rec); }
+  .gain { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .gl { font-size: 15px; }
+  .gslider { flex: 1; min-width: 0; accent-color: var(--vt-accent); }
+  .gv { font: 12px ui-monospace, monospace; color: var(--vt-muted); min-width: 2.6em; text-align: right; }
+  .agc { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vt-muted); white-space: nowrap; }
+  .agc input { accent-color: var(--vt-accent); }
   .err { color: var(--vt-danger); margin: 6px 0 0; font-size: 13px; }
   .diag { font: 11px ui-monospace, monospace; color: var(--vt-muted); margin: 6px 0 0; }
 </style>
