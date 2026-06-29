@@ -13,8 +13,6 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "x-apple.systempreferences:*" }]
-    },
-    "updater:default",
-    "process:allow-restart"
+    }
   ]
 }

@@ -109,6 +109,28 @@ pub fn run() {
                     tracing::warn!(?e, accel = %accel, "global hotkey registration failed; continuing without a hotkey");
                 }
             }
+            // Overlay is a desktop-only secondary window, created at runtime here
+            // instead of statically in tauri.conf.json: a static second window
+            // hijacks the single WebView surface on Android (the overlay rendered
+            // in place of `main`). Properties mirror the former conf entry.
+            #[cfg(desktop)]
+            {
+                tauri::WebviewWindowBuilder::new(
+                    app,
+                    "overlay",
+                    tauri::WebviewUrl::App("overlay.html".into()),
+                )
+                .title("Voxtide overlay")
+                .inner_size(600.0, 190.0)
+                .decorations(false)
+                .resizable(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .transparent(true)
+                .shadow(false)
+                .visible(false)
+                .build()?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

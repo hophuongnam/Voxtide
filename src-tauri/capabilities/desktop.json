@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only plugin permissions (updater auto-update + process restart). Scoped off mobile, where these plugins are cfg-gated out (see Task 0.3).",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main", "overlay"],
+  "permissions": [
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

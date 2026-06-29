@@ -24,20 +24,6 @@
         "transparent": false,
         "visible": true,
         "url": "index.html"
-      },
-      {
-        "label": "overlay",
-        "title": "Voxtide overlay",
-        "width": 600,
-        "height": 190,
-        "decorations": false,
-        "resizable": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "transparent": true,
-        "shadow": false,
-        "visible": false,
-        "url": "overlay.html"
       }
     ],
     "security": {
