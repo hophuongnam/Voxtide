@@ -35,7 +35,14 @@ export async function startMicCapture(onStats?: (s: MicStats) => void): Promise<
   const report = () =>
     onStats?.({ state: audioCtx?.state ?? '—', sampleRate: audioCtx?.sampleRate ?? 0, batches });
 
-  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // Far-field table pickup: keep autoGainControl (boosts the quieter person
+  // across the table) but disable noiseSuppression + echoCancellation — the
+  // aggressive mobile variants assume close-talk and gate out far/quiet speech,
+  // and there's no playback to echo-cancel with a single shared mic. Bare
+  // `{audio:true}` leaves all three on, which is why far speech got dropped.
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: false },
+  });
   // Force 16 kHz so Rust receives the pipeline's native rate (no resampler).
   audioCtx = new AudioContext({ sampleRate: 16000 });
   // Mobile WebViews start the context 'suspended' when it's created after an
