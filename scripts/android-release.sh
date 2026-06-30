@@ -46,13 +46,16 @@ if [[ -n "$VERSION_ARG" ]]; then
   CURRENT="$(jq -r .version src-tauri/tauri.conf.json)"
   if [[ "$VERSION_ARG" != "$CURRENT" ]]; then
     step "Bump $CURRENT → $VERSION_ARG  (NOTE: this version is SHARED with the desktop app)"
-    # Android only needs tauri.conf.json (it drives versionCode/versionName and
-    # getVersion()). package.json is bumped too so the two app-version manifests
-    # stay aligned; scripts/release.sh does the full 4-manifest bump for desktop.
+    # Android reads tauri.conf.json (versionCode/versionName + getVersion()), but
+    # keep every local manifest aligned so release traceability stays sane.
     for f in package.json src-tauri/tauri.conf.json; do
       tmp="$(mktemp)"; jq --arg v "$VERSION_ARG" '.version=$v' "$f" >"$tmp" && mv "$tmp" "$f"
     done
-    git add package.json src-tauri/tauri.conf.json
+    for f in src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml; do
+      perl -0pi -e 's/(\[package\][\s\S]*?\nversion = )"[^"]+"/$1"'"$VERSION_ARG"'"/' "$f"
+    done
+    perl -0pi -e 's/(name = "voxtide"\nversion = )"[^"]+"/$1"'"$VERSION_ARG"'"/; s/(name = "voxtide-core"\nversion = )"[^"]+"/$1"'"$VERSION_ARG"'"/' Cargo.lock
+    git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/voxtide-core/Cargo.toml Cargo.lock
     git commit -m "chore(android): bump version to ${VERSION_ARG}"
     grn "✓ bumped + committed"
   fi

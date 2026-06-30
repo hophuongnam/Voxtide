@@ -5,10 +5,7 @@
     <!-- Required by the WebView's onPermissionRequest handler for AUDIO_CAPTURE;
          without it the runtime grant is denied -> getUserMedia NotAllowedError. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
-
-    <!-- AndroidTV support -->
-    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="true" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -25,8 +22,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- AndroidTV support -->
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

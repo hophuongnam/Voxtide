@@ -10,7 +10,10 @@ class MicCapture extends AudioWorkletProcessor {
     const ch = inputs[0] && inputs[0][0];
     if (ch) {
       for (let i = 0; i < ch.length; i++) this.buf.push(ch[i]);
-      if (this.buf.length >= 1600) { this.port.postMessage(this.buf); this.buf = []; }
+      if (this.buf.length >= 1600) {
+        this.port.postMessage({ samples: this.buf, sampleRate });
+        this.buf = [];
+      }
     }
     return true;
   }
@@ -53,9 +56,7 @@ export async function startMicCapture(onStats?: (s: MicStats) => void, gain = 1,
   // never runs (silent: no PCM, no error). The readout shows the real state.
   await audioCtx.resume();
   report();
-  if (audioCtx.sampleRate !== 16000) {
-    console.warn('[mic] AudioContext rate', audioCtx.sampleRate, '!= 16000; audio may be pitch-shifted');
-  }
+  if (audioCtx.sampleRate !== 16000) console.warn('[mic] AudioContext rate', audioCtx.sampleRate, '!= 16000; Rust will resample');
   const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
   await audioCtx.audioWorklet.addModule(url);
   URL.revokeObjectURL(url);
@@ -65,11 +66,14 @@ export async function startMicCapture(onStats?: (s: MicStats) => void, gain = 1,
   gainNode = audioCtx.createGain();
   gainNode.gain.value = gain;
   node = new AudioWorkletNode(audioCtx, 'mic-capture');
-  // Each ~100 ms batch (plain number[]) → Rust Vec<f32>. JSON-serializable as-is.
+  // Each ~100 ms batch → Rust Vec<f32> plus the actual WebView AudioContext rate.
   node.port.onmessage = (e) => {
     batches++;
     report();
-    void invoke('feed_mic_pcm', { samples: e.data });
+    const payload = e.data as { samples: number[]; sampleRate?: number } | number[];
+    const samples = Array.isArray(payload) ? payload : payload.samples;
+    const sampleRate = Array.isArray(payload) ? audioCtx?.sampleRate : payload.sampleRate;
+    void invoke('feed_mic_pcm', { samples, sample_rate: sampleRate });
   };
   srcNode.connect(gainNode);
   gainNode.connect(node);

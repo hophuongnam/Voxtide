@@ -6,24 +6,29 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::audio::resampler::f32_to_i16;
+use crate::audio::resampler::{f32_to_i16, Resampler, ResamplerSpec};
 use crate::audio::{channel, AudioSource, AudioStream, Chunker};
 use crate::Result;
 
 /// Shared sink the `feed_mic_pcm` command writes raw mic PCM into. `None` when
 /// no Android capture session is active. Cloned into both `AppState` (for the
 /// command) and the active [`WebViewMicSource`].
-pub type MicFeed = Arc<Mutex<Option<mpsc::Sender<Vec<f32>>>>>;
+pub type MicFeed = Arc<Mutex<Option<mpsc::Sender<WebViewPcmBatch>>>>;
+
+#[derive(Debug, Clone)]
+pub struct WebViewPcmBatch {
+    pub samples: Vec<f32>,
+    pub sample_rate_hz: u32,
+}
 
 pub fn new_mic_feed() -> MicFeed {
     Arc::new(Mutex::new(None))
 }
 
-/// `AudioSource` fed by PCM pushed from the WebView. The JS side forces a
-/// 16 kHz `AudioContext`, so the pushed samples are already mono f32 at 16 kHz;
-/// this only converts f32->i16 and chunks into 100 ms `AudioFrame`s.
-/// ponytail: assumes 16 kHz input (JS forces it). If a device can't honor a
-/// 16 kHz AudioContext, resample in the worklet or add a Resampler here — add when needed.
+/// `AudioSource` fed by PCM pushed from the WebView. JS requests a 16 kHz
+/// `AudioContext`, but Android WebView may return a hardware-native rate. Each
+/// pushed batch includes the actual rate, so this source normalizes to Voxtide's
+/// 16 kHz mono contract before chunking.
 pub struct WebViewMicSource {
     feed: MicFeed,
 }
@@ -38,20 +43,43 @@ impl AudioSource for WebViewMicSource {
     fn start(&self) -> Result<AudioStream> {
         let (frame_tx, frame_rx) = channel(); // mpsc::Sender/Receiver<AudioFrame>
         let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
-        let (pcm_tx, mut pcm_rx) = mpsc::channel::<Vec<f32>>(64);
+        let (pcm_tx, mut pcm_rx) = mpsc::channel::<WebViewPcmBatch>(64);
 
         // Register the live sink so feed_mic_pcm pushes into THIS session.
         *self.feed.lock().unwrap() = Some(pcm_tx);
 
         tokio::spawn(async move {
             let mut chunker = Chunker::new();
+            let mut resampler: Option<(u32, Resampler)> = None;
+            let mut resampled = Vec::new();
             loop {
                 tokio::select! {
                     biased;
                     _ = &mut stop_rx => break,
                     maybe = pcm_rx.recv() => match maybe {
-                        Some(pcm) => {
-                            let i16s: Vec<i16> = pcm.into_iter().map(f32_to_i16).collect();
+                        Some(batch) => {
+                            if batch.sample_rate_hz == 0 {
+                                tracing::warn!("dropping WebView mic batch with zero sample rate");
+                                continue;
+                            }
+                            if resampler.as_ref().map(|(hz, _)| *hz) != Some(batch.sample_rate_hz) {
+                                match Resampler::new(ResamplerSpec {
+                                    source_hz: batch.sample_rate_hz,
+                                    source_channels: 1,
+                                }) {
+                                    Ok(r) => resampler = Some((batch.sample_rate_hz, r)),
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, sample_rate_hz = batch.sample_rate_hz, "dropping WebView mic batch; resampler init failed");
+                                        continue;
+                                    }
+                                }
+                            }
+                            let Some((_, r)) = resampler.as_mut() else { continue };
+                            if let Err(e) = r.process_into(&batch.samples, &mut resampled) {
+                                tracing::warn!(error = %e, sample_rate_hz = batch.sample_rate_hz, "dropping WebView mic batch; resample failed");
+                                continue;
+                            }
+                            let i16s: Vec<i16> = resampled.iter().copied().map(f32_to_i16).collect();
                             for frame in chunker.push(&i16s) {
                                 if frame_tx.send(frame).await.is_err() {
                                     // consumer (session worker) gone
@@ -79,7 +107,7 @@ impl AudioSource for WebViewMicSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::CHUNK_SAMPLES;
+    use crate::audio::{CHUNK_SAMPLES, SAMPLE_RATE_HZ};
 
     #[tokio::test]
     async fn pushed_pcm_becomes_i16_frames() {
@@ -89,8 +117,12 @@ mod tests {
 
         // start() registers the live sink; grab it and push > one chunk of f32.
         let tx = feed.lock().unwrap().clone().expect("sink registered");
-        let samples = vec![1.0f32; CHUNK_SAMPLES + 10]; // full-scale -> i16::MAX
-        tx.send(samples).await.unwrap();
+        tx.send(WebViewPcmBatch {
+            samples: vec![1.0f32; CHUNK_SAMPLES + 10], // full-scale -> i16::MAX
+            sample_rate_hz: SAMPLE_RATE_HZ,
+        })
+        .await
+        .unwrap();
 
         let frame = stream.rx.recv().await.expect("a frame");
         assert_eq!(frame.samples.len(), CHUNK_SAMPLES);
@@ -107,8 +139,35 @@ mod tests {
         // Drain task exited: its pcm_rx dropped, so the registered sender is now closed.
         // The slot is intentionally NOT cleared (a dead sender is harmless; next start() overwrites it).
         assert!(
-            sink.send(vec![0.0f32]).await.is_err(),
+            sink.send(WebViewPcmBatch {
+                samples: vec![0.0f32],
+                sample_rate_hz: SAMPLE_RATE_HZ,
+            })
+            .await
+            .is_err(),
             "drain task should have exited and closed its receiver"
         );
+    }
+
+    #[tokio::test]
+    async fn resamples_webview_native_rate_to_standard_frames() {
+        let feed = new_mic_feed();
+        let src = WebViewMicSource::new(feed.clone());
+        let mut stream = src.start().unwrap();
+        let tx = feed.lock().unwrap().clone().expect("sink registered");
+
+        tx.send(WebViewPcmBatch {
+            samples: vec![0.5f32; 48_000],
+            sample_rate_hz: 48_000,
+        })
+        .await
+        .unwrap();
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(1), stream.rx.recv())
+            .await
+            .expect("resampled frame timeout")
+            .expect("a resampled frame");
+        assert_eq!(frame.samples.len(), CHUNK_SAMPLES);
+        assert!(frame.samples.iter().any(|&s| s != 0));
     }
 }

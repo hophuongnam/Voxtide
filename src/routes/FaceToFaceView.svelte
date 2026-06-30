@@ -12,17 +12,21 @@
   import { formatTime, formatDuration } from '../lib/format';
   import FacePane from '../components/FacePane.svelte';
   import AndroidUpdateBanner from '../components/AndroidUpdateBanner.svelte';
-  import type { AppConfig, SessionRow, TranscriptLine } from '../types';
+  import type { AppConfig, ConnectionState, SessionRow, TranscriptLine } from '../types';
 
   const ACCOUNT = 'default';
   let cfg = $state<AppConfig | null>(null);
   let hasKey = $state(false);
   let keyInput = $state('');
   let recording = $state(false);
+  let starting = $state(false);
   let err = $state<string | null>(null);
   let mic = $state<MicStats | null>(null); // pipeline vitals for the diag readout
   let events = $state(0); // transcript events received this session
+  let conn = $state<ConnectionState>({ state: 'idle', attempt: null, retry_in_ms: null });
+  let latency = $state<number | null>(null);
   let unlisten: (() => void) | null = null;
+  let removeLifecycleStop: (() => void) | null = null;
 
   // History: `mode` switches the whole view between live capture, the saved-
   // session list, and read-only replay of a chosen past session.
@@ -63,8 +67,8 @@
 
   function handle(ev: CoreEvent) {
     switch (ev.kind) {
-      case 'session-started': recording = true; break;
-      case 'session-stopped': recording = false; transcript.clearLive(); break;
+      case 'session-started': recording = true; conn = { state: 'active', attempt: null, retry_in_ms: null }; break;
+      case 'session-stopped': recording = false; conn = { state: 'idle', attempt: null, retry_in_ms: null }; transcript.clearLive(); break;
       case 'transcript-live':
         events++;
         transcript.live({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip });
@@ -74,17 +78,23 @@
         transcript.final({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip, ts_ms: ev.ts_ms });
         break;
       case 'utterance-break': transcript.utteranceBreak(); break;
+      case 'connection-state': conn = { state: ev.state, attempt: ev.attempt, retry_in_ms: ev.retry_in_ms }; break;
+      case 'latency': latency = ev.median_ms; break;
       case 'error': err = ev.message; break;
     }
   }
 
   async function record() {
     err = null;
-    if (!cfg) return;
+    if (!cfg || starting || recording) return;
+    starting = true;
     transcript.reset();
     events = 0;
     mic = null;
+    latency = null;
+    conn = { state: 'idle', attempt: null, retry_in_ms: null };
     try {
+      await startMicCapture((s) => (mic = s), cfg.mic_gain, cfg.mic_agc); // triggers the WebView mic permission prompt
       await startSession({
         mode: 'conversation',
         language_a: cfg.language_a,
@@ -92,21 +102,35 @@
         device_id: '',
         api_key_account: ACCOUNT,
       });
-      try {
-        await startMicCapture((s) => (mic = s), cfg.mic_gain, cfg.mic_agc); // triggers the WebView mic permission prompt
-      } catch (e) {
-        stopMicCapture(); // release any partially-acquired stream/context
-        await stopSession();
-        err = 'Mic: ' + (e instanceof Error ? `${e.name} ${e.message}` : String(e));
-      }
+    } catch (e) {
+      stopMicCapture(); // release any partially-acquired stream/context
+      try { await stopSession(); } catch {}
+      const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
+      err = msg.startsWith('Error ') ? msg.slice(6) : msg;
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function stop() {
+    if (!recording && !mic && !starting) return;
+    stopMicCapture();
+    mic = null;
+    starting = false;
+    conn = { state: 'idle', attempt: null, retry_in_ms: null };
+    try {
+      await stopSession();
     } catch (e) {
       err = String(e instanceof Error ? e.message : e);
     }
   }
 
-  async function stop() {
-    stopMicCapture();
-    await stopSession();
+  function stopFromLifecycle() {
+    void stop();
+  }
+
+  function stopWhenHidden() {
+    if (document.visibilityState === 'hidden') stopFromLifecycle();
   }
 
   // Persist immediately — every UI pick survives without a save button (langs,
@@ -125,7 +149,7 @@
   }
 
   async function swap() {
-    if (!cfg || recording) return;
+    if (!cfg || recording || starting) return;
     [cfg.language_a, cfg.language_b] = [cfg.language_b, cfg.language_a];
     await setConfig(cfg);
   }
@@ -164,6 +188,14 @@
   }
 
   onMount(async () => {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('voxtide:android-stop', stopFromLifecycle);
+      document.addEventListener('visibilitychange', stopWhenHidden);
+      removeLifecycleStop = () => {
+        window.removeEventListener('voxtide:android-stop', stopFromLifecycle);
+        document.removeEventListener('visibilitychange', stopWhenHidden);
+      };
+    }
     // Guard Tauri calls so vitest/jsdom doesn't choke.
     if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
       cfg = await getConfig();
@@ -172,7 +204,11 @@
       unlisten = await onCoreEvent(handle);
     }
   });
-  onDestroy(() => unlisten?.());
+  onDestroy(() => {
+    removeLifecycleStop?.();
+    unlisten?.();
+    stopMicCapture();
+  });
 </script>
 
 <main class="ff">
@@ -241,19 +277,19 @@
     <div class="bar">
       <AndroidUpdateBanner />
       <div class="ctl">
-        <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording}>
+        <select bind:value={cfg.language_a} onchange={persistCfg} disabled={recording || starting}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
-        <button class="swap" onclick={swap} disabled={recording} aria-label="Swap languages">⇄</button>
-        <select bind:value={cfg.language_b} onchange={persistCfg} disabled={recording}>
+        <button class="swap" onclick={swap} disabled={recording || starting} aria-label="Swap languages">⇄</button>
+        <select bind:value={cfg.language_b} onchange={persistCfg} disabled={recording || starting}>
           {#each LANG_CODES as c}<option value={c}>{LANG_NAMES[c]}</option>{/each}
         </select>
-        <button class="rec" class:on={recording} onclick={() => (recording ? stop() : record())}
-                aria-label={recording ? 'Stop' : 'Record'}>{recording ? '■' : '●'}</button>
+        <button class="rec" class:on={recording} disabled={starting} onclick={() => (recording ? stop() : record())}
+                aria-label={recording ? 'Stop' : 'Record'}>{starting ? '...' : recording ? '■' : '●'}</button>
       </div>
       <div class="gain">
-        <button class="hist-btn" onclick={openHistory} disabled={recording} aria-label="History">🕘</button>
-        <button class="hist-btn" onclick={openSettings} disabled={recording} aria-label="Settings">⚙️</button>
+        <button class="hist-btn" onclick={openHistory} disabled={recording || starting} aria-label="History">🕘</button>
+        <button class="hist-btn" onclick={openSettings} disabled={recording || starting} aria-label="Settings">⚙️</button>
         <span class="gl" aria-hidden="true">🎤</span>
         <input class="gslider" type="range" min="0.5" max="4" step="0.1"
                bind:value={cfg.mic_gain}
@@ -262,8 +298,8 @@
         <span class="gv">{cfg.mic_gain.toFixed(1)}×</span>
       </div>
       {#if err}<p class="err">{err}</p>{/if}
-      {#if recording || mic}
-        <p class="diag">ctx {mic?.state ?? '—'} · {mic?.sampleRate ?? 0}Hz · sent {mic?.batches ?? 0} · rx {events}</p>
+      {#if recording || starting || mic}
+        <p class="diag">ctx {mic?.state ?? '—'} · {mic?.sampleRate ?? 0}Hz · sent {mic?.batches ?? 0} · rx {events} · {conn.state}{latency ? ` · ${latency}ms` : ''}</p>
       {/if}
     </div>
 
