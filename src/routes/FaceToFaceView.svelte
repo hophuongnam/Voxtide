@@ -270,6 +270,7 @@
         </label>
         <p class="sdesc">Lets the mic automatically adjust loudness. Off by default — leave it off to set the level yourself with the gain slider.</p>
       </section>
+      <p class="diag">Voxtide v{__APP_VERSION__}</p>
     </div>
   {:else if mode === 'replay' && viewing}
     <FacePane lines={pastSplit.far} live={[]} follow={false} />
