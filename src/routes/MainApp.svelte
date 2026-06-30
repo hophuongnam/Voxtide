@@ -344,6 +344,7 @@
         api_key_account: config.apiKeyAccount,
         capture_mic: mode === 'meeting' && captureMic,
         mic_device_id: config.config.default_mic ?? '',
+        context: config.config.context ?? '',
       });
     } catch (e) {
       // Route the typed StartError; never rethrow (a rethrow = unhandled

@@ -23,6 +23,10 @@ pub struct StartReq {
     /// Which mic to blend when `capture_mic` is set; empty = system default.
     #[serde(default)]
     pub mic_device_id: String,
+    /// Optional free-text context (names, jargon, domain) → Soniox, to bias
+    /// recognition and translation. Empty = omitted from the wire config.
+    #[serde(default)]
+    pub context: String,
 }
 
 /// Structured failure returned by [`start_session`]. Tauri serializes the `Err`
@@ -121,7 +125,7 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
             }
         }
     };
-    let provider = Box::new(SonioxBYOK::new());
+    let provider = Box::new(SonioxBYOK::new().with_context(req.context));
     let cfg = SessionConfig {
         api_key,
         mode: req.mode,

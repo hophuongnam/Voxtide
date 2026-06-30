@@ -11,7 +11,7 @@ fn meeting_one_way_translates_source_a_into_target_b() {
         language_b: "vi".into(),
         capture_mic: false,
     };
-    let v = build_initial_config(&cfg);
+    let v = build_initial_config(&cfg, "");
     assert_eq!(v["api_key"], "sk_test");
     assert_eq!(v["model"], "stt-rt-v5");
     assert_eq!(v["audio_format"], "pcm_s16le");
@@ -43,7 +43,7 @@ fn meeting_one_way_vi_source_into_en_target() {
         language_b: "en".into(),
         capture_mic: false,
     };
-    let v = build_initial_config(&cfg);
+    let v = build_initial_config(&cfg, "");
     assert_eq!(v["language_hints"], json!(["vi"]));
     assert_eq!(
         v["translation"],
@@ -63,7 +63,7 @@ fn conversation_two_way_config_emits_both_languages() {
         language_b: "ja".into(),
         capture_mic: false,
     };
-    let v = build_initial_config(&cfg);
+    let v = build_initial_config(&cfg, "");
     assert_eq!(
         v["translation"],
         json!({
@@ -72,7 +72,9 @@ fn conversation_two_way_config_emits_both_languages() {
             "language_b": "ja"
         })
     );
-    assert_eq!(v["language_hints"], serde_json::Value::Null);
+    // Both languages are hinted for recognition in two-way mode (either side
+    // can be spoken into the stream).
+    assert_eq!(v["language_hints"], json!(["en", "ja"]));
 }
 
 /// Meeting mode with the local mic blended in goes two-way: the remote side
@@ -88,7 +90,7 @@ fn meeting_with_capture_mic_is_two_way() {
         language_b: "vi".into(),
         capture_mic: true,
     };
-    let v = build_initial_config(&cfg);
+    let v = build_initial_config(&cfg, "");
     assert_eq!(
         v["translation"],
         json!({
@@ -97,6 +99,34 @@ fn meeting_with_capture_mic_is_two_way() {
             "language_b": "vi"
         })
     );
-    // No single-language hint when both directions are live.
-    assert_eq!(v["language_hints"], serde_json::Value::Null);
+    // Both languages hinted: the remote (a) via system audio AND the local
+    // mic (b) can each be spoken into the blended stream.
+    assert_eq!(v["language_hints"], json!(["en", "vi"]));
+}
+
+/// Context: a non-empty user string is sent as Soniox's `context.text`
+/// (free-text section); blank context omits the key entirely so the wire
+/// config is unchanged for users who never set it.
+#[test]
+fn context_text_included_only_when_non_empty() {
+    let cfg = SessionConfig {
+        api_key: "sk_test".into(),
+        mode: Mode::Conversation,
+        language_a: "en".into(),
+        language_b: "ja".into(),
+        capture_mic: false,
+    };
+    let with_ctx = build_initial_config(&cfg, "  Acme Corp; speakers: Nam, Yuki  ");
+    assert_eq!(
+        with_ctx["context"],
+        json!({ "text": "Acme Corp; speakers: Nam, Yuki" }),
+        "context.text should carry the trimmed user string"
+    );
+
+    let blank = build_initial_config(&cfg, "   ");
+    assert_eq!(
+        blank["context"],
+        serde_json::Value::Null,
+        "blank/whitespace context must omit the key"
+    );
 }

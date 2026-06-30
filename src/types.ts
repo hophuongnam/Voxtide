@@ -21,6 +21,9 @@ export interface AppConfig {
   mic_gain: number;
   // Android: browser automatic gain control on the mic (off by default).
   mic_agc: boolean;
+  // Optional free-text context (names, jargon, domain) sent to Soniox to bias
+  // recognition and translation. Empty by default.
+  context: string;
 }
 
 export interface SessionRow {

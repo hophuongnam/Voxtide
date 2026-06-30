@@ -58,6 +58,11 @@ pub struct AppConfig {
     /// AGC auto-rides the level and fights it. User-toggleable.
     #[serde(default)]
     pub mic_agc: bool,
+    /// Optional free-text context (names, jargon, domain) sent to Soniox to
+    /// bias recognition and translation. Empty by default. `#[serde(default)]`
+    /// so older config.json files load with no context.
+    #[serde(default)]
+    pub context: String,
 }
 
 fn default_mic_gain() -> f32 {
@@ -81,6 +86,7 @@ impl Default for AppConfig {
             meeting_capture_mic: false,
             mic_gain: 1.0,
             mic_agc: false,
+            context: String::new(),
         }
     }
 }

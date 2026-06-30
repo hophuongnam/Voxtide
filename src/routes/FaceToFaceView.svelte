@@ -101,6 +101,7 @@
         language_b: cfg.language_b,
         device_id: '',
         api_key_account: ACCOUNT,
+        context: cfg.context ?? '',
       });
     } catch (e) {
       stopMicCapture(); // release any partially-acquired stream/context
@@ -253,6 +254,14 @@
           <button class="sbtn-primary" onclick={saveKey}>Save</button>
           {#if hasKey}<button class="sbtn" onclick={clearKey}>Remove</button>{/if}
         </div>
+      </section>
+      <section class="sset">
+        <div class="slabel">Context</div>
+        <textarea class="sinput" rows="3" style="resize:vertical"
+                  placeholder="Names, jargon, domain — improves recognition & translation. Optional."
+                  bind:value={cfg.context} onblur={persistCfg}
+                  aria-label="Translation context"></textarea>
+        <p class="sdesc">Sent to the translator to bias names, jargon and domain. Optional — leave blank if not needed.</p>
       </section>
       <section class="sset">
         <label class="agc-set">

@@ -20,7 +20,7 @@ pub const MODEL: &str = "stt-rt-v5";
 /// at the pipeline's rate/channel constants = 16000 × 1 × 2 / 1000 = 32.
 const PCM_BYTES_PER_MS: u64 = (SAMPLE_RATE_HZ as u64 * CHANNELS as u64 * 2) / 1000;
 
-pub fn build_initial_config(cfg: &SessionConfig) -> Value {
+pub fn build_initial_config(cfg: &SessionConfig, context: &str) -> Value {
     let mut base = json!({
         "api_key": cfg.api_key,
         "model": MODEL,
@@ -39,6 +39,12 @@ pub fn build_initial_config(cfg: &SessionConfig) -> Value {
     // speaks language_a via system audio, the local user language_b via mic).
     // Plain Meeting (system audio only) stays one-way a → b.
     if matches!(cfg.mode, Mode::Conversation) || cfg.capture_mic {
+        // Hint BOTH languages for recognition: either can be spoken into the
+        // stream. Soniox's canonical v5 example pairs language_hints with
+        // two_way, and hints improve recognition accuracy independent of the
+        // translation direction — without them the two-way path was flying
+        // blind on recognition (the mode Android Conversation always runs).
+        base["language_hints"] = json!([cfg.language_a, cfg.language_b]);
         base["translation"] = json!({
             "type": "two_way",
             "language_a": cfg.language_a,
@@ -50,6 +56,16 @@ pub fn build_initial_config(cfg: &SessionConfig) -> Value {
             "type": "one_way",
             "target_language": cfg.language_b,
         });
+    }
+
+    // Optional user-supplied context (names, jargon, domain) biases both
+    // recognition and translation. Free-text form only — Soniox's `text`
+    // section, the unstructured catch-all (≤8k tokens). Structured
+    // terms/translation_terms are the upgrade path. Omitted entirely when blank
+    // so the wire config is byte-identical to before for users who never set it.
+    let context = context.trim();
+    if !context.is_empty() {
+        base["context"] = json!({ "text": context });
     }
     base
 }
@@ -83,6 +99,10 @@ pub struct SonioxBYOK {
     /// Reconnect backoff schedule, injectable so tests can collapse the
     /// ~13.8s real-time ladder to near-zero. Defaults to [`next_backoff_ms`].
     backoff_ms: fn(u32) -> u64,
+    /// Optional free-text recognition/translation context (names, jargon,
+    /// domain). Soniox-specific knob, so it lives on the provider rather than
+    /// the provider-agnostic `SessionConfig`. Empty = omitted from the wire.
+    context: String,
     audio_tx: Option<mpsc::Sender<Outbound>>,
     event_rx: Option<mpsc::Receiver<TranslationEvent>>,
     task: Option<tokio::task::JoinHandle<()>>,
@@ -106,10 +126,19 @@ impl SonioxBYOK {
         Self {
             endpoint: endpoint.to_string(),
             backoff_ms,
+            context: String::new(),
             audio_tx: None,
             event_rx: None,
             task: None,
         }
+    }
+
+    /// Attach free-text context (names, jargon, domain) sent to Soniox to bias
+    /// recognition and translation. Builder-style so call sites read as
+    /// `SonioxBYOK::new().with_context(ctx)`. Blank strings are a no-op.
+    pub fn with_context(mut self, context: String) -> Self {
+        self.context = context;
+        self
     }
 }
 
@@ -160,6 +189,7 @@ impl TranslationProvider for SonioxBYOK {
 
         let endpoint = self.endpoint.clone();
         let backoff_ms = self.backoff_ms;
+        let context = self.context.clone();
 
         let task = tokio::spawn(async move {
             let mut attempt = 0u32;
@@ -200,7 +230,7 @@ impl TranslationProvider for SonioxBYOK {
                 let _ = event_tx.send(TranslationEvent::Connected).await;
 
                 let (mut ws_tx, mut ws_rx) = ws.split();
-                let initial = build_initial_config(&cfg).to_string();
+                let initial = build_initial_config(&cfg, &context).to_string();
                 if let Err(e) = ws_tx.send(Message::Text(initial)).await {
                     tracing::warn!(?e, "send initial config; reconnecting");
                     // A failed config send is NOT progress, so we do NOT reset

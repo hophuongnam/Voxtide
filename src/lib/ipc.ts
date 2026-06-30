@@ -59,6 +59,7 @@ export interface StartReq {
   api_key_account: string;
   capture_mic?: boolean;       // Meeting only: blend the local mic in (→ two-way)
   mic_device_id?: string;      // which mic to blend; empty = system default
+  context?: string;            // free-text recognition/translation context for Soniox
 }
 export const startSession = (req: StartReq) => invoke<number>('start_session', { req });
 export const stopSession  = () => invoke<void>('stop_session');

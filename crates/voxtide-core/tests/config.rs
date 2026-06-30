@@ -79,6 +79,37 @@ fn mode_round_trips() {
 }
 
 #[test]
+fn context_round_trips_and_old_config_defaults_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConfigStore::at(dir.path().join("config.json"));
+
+    // A user-set context survives save → load unchanged.
+    let cfg = AppConfig {
+        context: "Speakers: Nam, Yuki. Company: Acme.".into(),
+        ..AppConfig::default()
+    };
+    store.save(&cfg).unwrap();
+    assert_eq!(store.load().unwrap().context, "Speakers: Nam, Yuki. Company: Acme.");
+
+    // A config.json predating the `context` field loads with an empty context
+    // (serde default) instead of failing — the migration-safety guarantee.
+    let path = dir.path().join("old.json");
+    std::fs::write(
+        &path,
+        r#"{
+  "language_a": "en",
+  "language_b": "vi",
+  "hotkey": "Ctrl+Shift+V",
+  "theme": "system",
+  "default_meeting_source": null,
+  "default_mic": null
+}"#,
+    )
+    .unwrap();
+    assert_eq!(ConfigStore::at(&path).load().unwrap().context, "");
+}
+
+#[test]
 fn save_and_reload_round_trips() {
     let dir = tempfile::tempdir().unwrap();
     let store = ConfigStore::at(dir.path().join("config.json"));

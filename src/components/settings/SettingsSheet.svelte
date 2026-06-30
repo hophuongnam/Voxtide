@@ -1,5 +1,6 @@
 <script lang="ts">
   import ApiKeySection from './ApiKeySection.svelte';
+  import ContextSection from './ContextSection.svelte';
   import DefaultLanguagesSection from './DefaultLanguagesSection.svelte';
   import DefaultSourceSection from './DefaultSourceSection.svelte';
   import HotkeySection from './HotkeySection.svelte';
@@ -52,6 +53,7 @@
       </div>
       <ApiKeySection hasKey={keyPresent} {account} onsaved={() => reload()} />
       <DefaultLanguagesSection cfg={cfg} onchange={onChange} />
+      <ContextSection cfg={cfg} onchange={onChange} />
       <DefaultSourceSection cfg={cfg} onchange={onChange} />
       <HotkeySection cfg={cfg} onchange={onChange} />
       <AppearanceSection cfg={cfg} onchange={onChange} />

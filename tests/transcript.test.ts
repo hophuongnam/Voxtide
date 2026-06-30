@@ -8,7 +8,7 @@ import type { AppConfig } from '../src/types';
 const sampleCfg: AppConfig = {
   language_a: 'zh', language_b: 'en', hotkey: 'Ctrl+Shift+V',
   theme: 'system', default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
-  mode: 'conversation', font_size: 'm', show_pinyin: false, mic_gain: 1, mic_agc: false,
+  mode: 'conversation', font_size: 'm', show_pinyin: false, mic_gain: 1, mic_agc: false, context: '',
 };
 
 describe('TranscriptPane', () => {
