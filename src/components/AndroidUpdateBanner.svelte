@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getVersion } from '@tauri-apps/api/app';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { isNewer } from '../lib/version';
+  import { pickUpdate } from '../lib/version';
 
   // Android has no in-app updater (the desktop tauri-updater is cfg-gated off),
   // so this checks GitHub Releases and opens the APK in the browser to install.
@@ -21,25 +21,14 @@
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     try {
       const current = await getVersion();
-      // List releases (newest first) and take the newest that ships an .apk —
-      // /releases/latest can be a desktop-only release with no Android asset.
+      // Scan ALL releases for the newest .apk — /releases is not version-ordered
+      // and desktop v* releases (no Android asset) are interleaved.
       const res = await fetch(`${RELEASES_API}?per_page=30`);
       if (!res.ok) return;
-      const releases: Array<{
-        draft?: boolean; prerelease?: boolean; tag_name?: string;
-        assets?: { name?: string; browser_download_url?: string }[];
-      }> = await res.json();
-      for (const rel of releases) {
-        if (rel.draft || rel.prerelease) continue;
-        const apk = (rel.assets ?? []).find((a) => String(a.name ?? '').endsWith('.apk'));
-        if (!apk) continue;
-        // Strip any tag prefix (v / android-v) down to the bare semver.
-        const version = String(rel.tag_name ?? '').replace(/^[^\d]*/, '');
-        if (version && isNewer(version, current)) {
-          latest = version;
-          url = apk.browser_download_url ?? null;
-        }
-        break; // the first .apk-bearing release is the newest Android release
+      const hit = pickUpdate(await res.json(), current);
+      if (hit) {
+        latest = hit.version;
+        url = hit.url;
       }
     } catch (e) {
       console.warn('update check failed', e);

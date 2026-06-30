@@ -14,3 +14,36 @@ export function isNewer(a: string, b: string): boolean {
   }
   return false;
 }
+
+export interface GithubRelease {
+  draft?: boolean;
+  prerelease?: boolean;
+  tag_name?: string;
+  assets?: { name?: string; browser_download_url?: string }[];
+}
+
+/**
+ * Pick the highest-semver published release that ships an `.apk` and is strictly
+ * newer than `current`, else null. GitHub's /releases list is NOT ordered by
+ * version or publish date, and desktop `v*` releases (no Android asset) are
+ * interleaved — so scan ALL of them and take the max; never trust list position.
+ */
+export function pickUpdate(
+  releases: GithubRelease[],
+  current: string,
+): { version: string; url: string } | null {
+  let bestVer: string | null = null;
+  let bestUrl: string | null = null;
+  for (const rel of releases) {
+    if (rel.draft || rel.prerelease) continue;
+    const apk = (rel.assets ?? []).find((a) => String(a.name ?? '').endsWith('.apk'));
+    if (!apk?.browser_download_url) continue;
+    // Strip any tag prefix (v / android-v) down to the bare semver.
+    const version = String(rel.tag_name ?? '').replace(/^[^\d]*/, '');
+    if (version && (!bestVer || isNewer(version, bestVer))) {
+      bestVer = version;
+      bestUrl = apk.browser_download_url;
+    }
+  }
+  return bestVer && bestUrl && isNewer(bestVer, current) ? { version: bestVer, url: bestUrl } : null;
+}
