@@ -31,6 +31,22 @@ let gainNode: GainNode | null = null;
  *  gets pitch-shifted audio; `state` must reach 'running' or no audio flows. */
 export interface MicStats { state: string; sampleRate: number; batches: number; }
 
+/** Pick the phone's built-in mic from an `enumerateDevices()` list, else undefined.
+ *  Skips the virtual `default`/`communications` aliases (they FOLLOW the system
+ *  route → a connected Bluetooth/wired headset) and anything whose label looks
+ *  external, leaving the on-board mic. Face-to-face mode wants the phone's own mic
+ *  (it hears both speakers across the table), never a headset by one person's ear.
+ *  Label-based, so undefined just falls back to the system default — no worse than
+ *  before. */
+export function pickBuiltinMic(devices: { kind: string; deviceId: string; label: string }[]): string | undefined {
+  const EXTERNAL = /bluetooth|headset|\bsco\b|hands.?free|wired|airpod|buds|earbud|earphone|headphone/i;
+  return devices.find(
+    (d) => d.kind === 'audioinput'
+      && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'
+      && !EXTERNAL.test(d.label),
+  )?.deviceId;
+}
+
 /** Start capturing the mic and streaming PCM to Rust. Throws if mic permission
  *  is denied (NotAllowedError) — the caller surfaces that. `onStats` (optional)
  *  reports pipeline vitals for the on-device diagnostic readout. `gain` is the
@@ -46,9 +62,35 @@ export async function startMicCapture(onStats?: (s: MicStats) => void, gain = 1,
   // single shared mic). autoGainControl is user-toggleable (`agc`) — default OFF
   // so the manual mic_gain slider is the primary, predictable level control (AGC
   // auto-rides the level and fights the knob), but some users prefer it on.
-  stream = await navigator.mediaDevices.getUserMedia({
-    audio: { autoGainControl: agc, noiseSuppression: false, echoCancellation: false },
-  });
+  const base: MediaTrackConstraints = { autoGainControl: agc, noiseSuppression: false, echoCancellation: false };
+  // Pin the built-in mic so a connected Bluetooth/wired headset can't hijack it —
+  // face-to-face needs the on-table phone mic that hears both speakers, not a mic
+  // by one person's ear. enumerateDevices() labels are blank until permission is
+  // granted, so on first run we open the default to get it, then re-pin below.
+  // Enumeration is best-effort: a failure must not break capture (just no pinning).
+  const enumerate = async () => {
+    try { return await navigator.mediaDevices.enumerateDevices(); } catch { return []; }
+  };
+  let builtin = pickBuiltinMic(await enumerate());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: builtin ? { ...base, deviceId: { exact: builtin } } : base,
+    });
+  } catch {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+  }
+  if (!builtin) {
+    // Permission is granted now → labels are populated. Re-pin if the default
+    // device (which a headset hijacks) isn't already the built-in mic.
+    builtin = pickBuiltinMic(await enumerate());
+    if (builtin && builtin !== stream.getAudioTracks()[0]?.getSettings().deviceId) {
+      try {
+        const pinned = await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: builtin } } });
+        stream.getTracks().forEach((t) => t.stop());
+        stream = pinned;
+      } catch { /* keep the default stream if pinning to the built-in fails */ }
+    }
+  }
   // Force 16 kHz so Rust receives the pipeline's native rate (no resampler).
   audioCtx = new AudioContext({ sampleRate: 16000 });
   // Mobile WebViews start the context 'suspended' when it's created after an
