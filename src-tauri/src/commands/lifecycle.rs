@@ -100,7 +100,9 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
             #[cfg(not(target_os = "android"))]
             {
                 if req.device_id.is_empty() {
-                    Box::new(MicSource::default_device().map_err(|e| StartError::classify(&e, mode))?)
+                    Box::new(
+                        MicSource::default_device().map_err(|e| StartError::classify(&e, mode))?,
+                    )
                 } else {
                     Box::new(MicSource::by_id(&req.device_id))
                 }

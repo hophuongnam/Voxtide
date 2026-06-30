@@ -89,7 +89,10 @@ fn context_round_trips_and_old_config_defaults_empty() {
         ..AppConfig::default()
     };
     store.save(&cfg).unwrap();
-    assert_eq!(store.load().unwrap().context, "Speakers: Nam, Yuki. Company: Acme.");
+    assert_eq!(
+        store.load().unwrap().context,
+        "Speakers: Nam, Yuki. Company: Acme."
+    );
 
     // A config.json predating the `context` field loads with an empty context
     // (serde default) instead of failing — the migration-safety guarantee.
