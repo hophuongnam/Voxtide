@@ -26,6 +26,22 @@ let node: AudioWorkletNode | null = null;
 let stream: MediaStream | null = null;
 let gainNode: GainNode | null = null;
 
+// Keep the screen awake while capturing. ponytail: Web Screen Wake Lock API —
+// no native Android code, no plugin. The lock auto-releases when the page goes
+// hidden (app backgrounded / screen off), so re-acquire on visibilitychange
+// while still capturing. Best-effort: unsupported WebViews (older WKWebView)
+// just no-op via the optional chain / catch.
+let wakeLock: WakeLockSentinel | null = null;
+let capturing = false;
+const acquireWakeLock = async () => {
+  try { wakeLock = (await navigator.wakeLock?.request('screen')) ?? null; } catch { /* unsupported / denied — no-op */ }
+};
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (capturing && document.visibilityState === 'visible') void acquireWakeLock();
+  });
+}
+
 /** Live pipeline vitals for the on-device diagnostic readout. `batches` climbing
  *  proves getUserMedia+worklet+posting work; `sampleRate` must be 16000 or Soniox
  *  gets pitch-shifted audio; `state` must reach 'running' or no audio flows. */
@@ -53,6 +69,8 @@ export function pickBuiltinMic(devices: { kind: string; deviceId: string; label:
  *  initial input-gain multiplier (1.0 = unity); change it live via setMicGain.
  *  `agc` enables the browser's automatic gain control (live via setMicAgc). */
 export async function startMicCapture(onStats?: (s: MicStats) => void, gain = 1, agc = false): Promise<void> {
+  capturing = true;
+  void acquireWakeLock();
   let batches = 0;
   const report = () =>
     onStats?.({ state: audioCtx?.state ?? '—', sampleRate: audioCtx?.sampleRate ?? 0, batches });
@@ -135,6 +153,9 @@ export function setMicAgc(agc: boolean): void {
 }
 
 export function stopMicCapture(): void {
+  capturing = false;
+  void wakeLock?.release();
+  wakeLock = null;
   node?.disconnect();
   gainNode?.disconnect();
   stream?.getTracks().forEach((t) => t.stop());
