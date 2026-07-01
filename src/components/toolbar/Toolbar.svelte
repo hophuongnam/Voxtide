@@ -3,10 +3,11 @@
   import ModeToggle from './ModeToggle.svelte';
   import LangPair from './LangPair.svelte';
   import AudioSourcePicker from './AudioSourcePicker.svelte';
+  import ContextPicker from './ContextPicker.svelte';
   import IconBtn from './IconBtn.svelte';
   import PrimaryBtn from './PrimaryBtn.svelte';
   import type { DeviceEntry } from '../../lib/ipc';
-  import type { Mode } from '../../types';
+  import type { ContextPreset, Mode } from '../../types';
 
   interface Props {
     mode: Mode;
@@ -26,6 +27,10 @@
     onsource: (d: DeviceEntry) => void;
     captureMic: boolean;
     oncapturemic: (v: boolean) => void;
+    contexts: ContextPreset[];
+    activeContextId: string | null;
+    oncontextpick: (id: string | null) => void;
+    oncontextedit: () => void;
   }
   const p: Props = $props();
 </script>
@@ -44,6 +49,10 @@
   <div class="ml-2"><LangPair a={p.a} b={p.b} onswap={p.onswap} onpick={p.onlangpick} /></div>
   <div class="ml-1.5">
     <AudioSourcePicker mode={p.mode} selected={p.source} options={p.sourceOptions} onselect={p.onsource} />
+  </div>
+  <div class="ml-1.5">
+    <ContextPicker contexts={p.contexts} activeId={p.activeContextId} disabled={p.recording}
+                   onpick={p.oncontextpick} onedit={p.oncontextedit} />
   </div>
   {#if p.mode === 'meeting'}
     <!-- Blend the local mic into system audio → two-way translation. -->

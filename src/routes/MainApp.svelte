@@ -24,6 +24,7 @@
   import ConfirmDeleteSheet from '../components/sidebar/ConfirmDeleteSheet.svelte';
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
   import { langByCode } from '../lib/languages';
+  import { resolveActiveContext, seedContextFromLegacy } from '../lib/context';
   import type { TranscriptLine } from '../types';
   import type { AppInfo, CoreEvent, DeviceEntry } from '../lib/ipc';
   import type { AppConfig, FontSize, Mode, SessionRow, StartError } from '../types';
@@ -278,7 +279,14 @@
           .catch((e) => console.debug('app_info failed', e));
 
         const cfg = await getConfig();
-        config.setConfig(cfg);
+        // One-time migration from the legacy single-blob context to the
+        // preset library (see src/lib/context.ts) — no-op once a library
+        // already exists or there was no legacy text to seed from.
+        const seeded = seedContextFromLegacy(cfg);
+        config.setConfig(seeded ?? cfg);
+        if (seeded) {
+          void persist({ contexts: seeded.contexts, active_context_id: seeded.active_context_id, context: '' });
+        }
         mode = cfg.mode;
         captureMic = cfg.meeting_capture_mic;
         applyTheme(cfg.theme);
@@ -344,7 +352,7 @@
         api_key_account: config.apiKeyAccount,
         capture_mic: mode === 'meeting' && captureMic,
         mic_device_id: config.config.default_mic ?? '',
-        context: config.config.context ?? '',
+        context: resolveActiveContext(config.config),
       });
     } catch (e) {
       // Route the typed StartError; never rethrow (a rethrow = unhandled
@@ -406,6 +414,11 @@
     // Swap source (a) and target (b) languages.
     await persist({ language_a: c.language_b, language_b: c.language_a });
   }
+  // Per-session context-preset pick: persist-every-pick (mirrors every other
+  // toolbar control), never batched with a later save.
+  function onContextPick(id: string | null) {
+    void persist({ active_context_id: id });
+  }
   async function onReadingChange(next: AppConfig) {
     const c = config.config;
     if (!c) return;
@@ -447,7 +460,11 @@
     source={selectedSource}
     sourceOptions={mode === 'meeting' ? meetingSources : micSources}
     onsource={onSourceChange}
-    {captureMic} oncapturemic={onCaptureMicChange} />
+    {captureMic} oncapturemic={onCaptureMicChange}
+    contexts={config.config?.contexts ?? []}
+    activeContextId={config.config?.active_context_id ?? null}
+    oncontextpick={onContextPick}
+    oncontextedit={onSettings} />
 
   <PermissionBanner kind={permissionKind} ondismiss={() => permissionKind = null} />
   {#if appError}

@@ -20,6 +20,7 @@ const { invokeMock } = vi.hoisted(() => ({
       hotkey: 'Ctrl+Shift+V', theme: 'system',
       default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
       mode: 'meeting', font_size: 'm', show_pinyin: false,
+      context: '', contexts: [], active_context_id: null,
     };
     if (cmd === 'has_api_key') return true;
     if (cmd === 'list_sessions') return sampleSessions;
@@ -116,6 +117,7 @@ describe('MainApp delete flow', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return sampleSessions;
@@ -142,6 +144,7 @@ describe('MainApp delete flow', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return false;
       if (cmd === 'list_sessions') return [];
@@ -168,6 +171,7 @@ describe('MainApp reading config', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'm', show_pinyin: true,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [];
@@ -197,6 +201,7 @@ describe('MainApp reading config', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'xl', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [];
@@ -235,6 +240,7 @@ describe('MainApp reading config', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'xl', show_pinyin: true,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [pastSession];
@@ -288,6 +294,7 @@ describe('MainApp error surfacing', () => {
     hotkey: 'Ctrl+Shift+V', theme: 'system',
     default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
     mode: 'meeting', font_size: 'm', show_pinyin: false,
+    context: '', contexts: [], active_context_id: null,
   };
   const loopback = [{ id: 'sys', label: 'System Audio', default: true }];
 
@@ -390,6 +397,7 @@ describe('MainApp language swap', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [];
@@ -423,6 +431,7 @@ describe('MainApp search', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return sampleSessions;
@@ -512,6 +521,7 @@ describe('MainApp past-session labels', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'conversation', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [pastSession];
@@ -551,6 +561,7 @@ describe('MainApp session lifecycle hygiene', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return sampleSessions;
@@ -653,6 +664,7 @@ describe('MainApp status bar truth', () => {
         hotkey: 'Ctrl+Shift+V', theme: 'system',
         default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
         mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '', contexts: [], active_context_id: null,
       };
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return sampleSessions;
