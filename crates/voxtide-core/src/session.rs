@@ -485,6 +485,17 @@ async fn handle_event(ctx: &mut EventCtx<'_>, ev: TranslationEvent) -> ControlFl
                 retry_in_ms: Some(retry_in_ms),
             });
         }
+        // A mid-session context switch is reconnecting the provider. No
+        // attempt/retry_in_ms: this isn't a failure-driven reconnect (see
+        // `TranslationEvent::ContextSwitching`'s doc comment). The next
+        // `Connected` (already mapped to `state: "active"` above) clears it.
+        TranslationEvent::ContextSwitching => {
+            let _ = ctx.tx.send(CoreEvent::ConnectionState {
+                state: "context-switching",
+                attempt: None,
+                retry_in_ms: None,
+            });
+        }
         TranslationEvent::Live {
             text,
             language,

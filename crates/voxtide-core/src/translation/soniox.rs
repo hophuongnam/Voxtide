@@ -87,6 +87,10 @@ pub fn next_backoff_ms(attempt: u32) -> u64 {
 /// Internal control envelope between the public API and the background task.
 enum Outbound {
     Binary(Vec<u8>),
+    /// A mid-session context switch: the background task adopts this text as
+    /// the new context and reconnects in place (Soniox only accepts `context`
+    /// in the initial config frame, so a change requires a fresh socket).
+    SetContext(String),
 }
 
 /// Bring-your-own-key Soniox real-time translation provider.
@@ -189,7 +193,9 @@ impl TranslationProvider for SonioxBYOK {
 
         let endpoint = self.endpoint.clone();
         let backoff_ms = self.backoff_ms;
-        let context = self.context.clone();
+        // Mutable: a mid-session `Outbound::SetContext` reassigns this so the
+        // NEXT `build_initial_config` call (on reconnect) carries the new value.
+        let mut context = self.context.clone();
 
         let task = tokio::spawn(async move {
             let mut attempt = 0u32;
@@ -266,6 +272,10 @@ impl TranslationProvider for SonioxBYOK {
                 let mut got_tokens = false;
                 let mut finished = false;
                 let mut client_eos = false;
+                // Set true when a mid-session `Outbound::SetContext` breaks the
+                // inner loop, so the post-loop logic can reconnect immediately
+                // instead of following the got_tokens/MAX_ATTEMPTS/backoff path.
+                let mut context_switch = false;
                 // Milliseconds of audio successfully written to THIS
                 // connection's socket. Per-connection (like Soniox's
                 // `final_audio_proc_ms` watermark, which restarts at 0 on a
@@ -289,6 +299,18 @@ impl TranslationProvider for SonioxBYOK {
                                     // Successful write: advance the watermark the
                                     // audio-anchored latency is measured against.
                                     audio_ms_sent += bytes / PCM_BYTES_PER_MS;
+                                }
+                                Some(Outbound::SetContext(new)) => {
+                                    // Soniox only accepts `context` in the initial
+                                    // config frame, so adopting a new one requires a
+                                    // fresh socket. Adopt it now (read on the next
+                                    // `build_initial_config` call after reconnect),
+                                    // signal the switch to the caller, and break so
+                                    // the post-loop logic reconnects immediately.
+                                    context = new;
+                                    let _ = event_tx.send(TranslationEvent::ContextSwitching).await;
+                                    context_switch = true;
+                                    break 'inner;
                                 }
                                 None => {
                                     // Caller dropped the audio sender (i.e., called close()).
@@ -430,6 +452,17 @@ impl TranslationProvider for SonioxBYOK {
                     return;
                 }
 
+                // A mid-session context switch: reconnect immediately, with no
+                // backoff sleep and no `Reconnecting` event (the `ContextSwitching`
+                // event already fired). Resetting `attempt` to 0 here means the
+                // `attempt += 1` at the top of `'outer` lands on 1 — the switch
+                // never counts against the MAX_ATTEMPTS reconnect budget, exactly
+                // like the `got_tokens` progress reset below.
+                if context_switch {
+                    attempt = 0;
+                    continue 'outer;
+                }
+
                 // The connection was established but died. Reset the reconnect
                 // budget ONLY if this connection made real progress (received at
                 // least one transcript token); otherwise the budget keeps
@@ -477,6 +510,15 @@ impl TranslationProvider for SonioxBYOK {
         };
         // Move the buffer straight into the outbound channel — no extra copy.
         tx.send(Outbound::Binary(pcm))
+            .await
+            .map_err(|e| Error::Soniox(format!("audio channel closed: {e}")))
+    }
+
+    async fn set_context(&mut self, text: String) -> Result<()> {
+        let Some(tx) = self.audio_tx.as_ref() else {
+            return Err(Error::Soniox("provider not open".into()));
+        };
+        tx.send(Outbound::SetContext(text))
             .await
             .map_err(|e| Error::Soniox(format!("audio channel closed: {e}")))
     }

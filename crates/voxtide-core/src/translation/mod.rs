@@ -70,6 +70,13 @@ pub enum TranslationEvent {
         attempt: u32,
         retry_in_ms: u64,
     },
+    /// A mid-session [`TranslationProvider::set_context`] switch is reconnecting
+    /// the provider with the new context. Marker only (no fields): the reconnect
+    /// that follows re-emits `Connected` once the new socket is up, and it does
+    /// NOT consume the [`crate::translation::soniox::MAX_ATTEMPTS`] reconnect
+    /// budget or emit `Reconnecting` — this event is the sole signal that a
+    /// reconnect is in flight for this reason.
+    ContextSwitching,
     /// A terminal provider failure with a human-readable message (e.g. a Soniox
     /// server error like a bad API key or exhausted quota). The session worker
     /// rebroadcasts this as [`crate::session::CoreEvent::Error`]; a `Stopped`
@@ -85,6 +92,13 @@ pub trait TranslationProvider: Send {
     /// implementation can move it straight into its outbound channel / wire
     /// frame without re-copying (the call site already builds an owned `Vec`).
     async fn send_audio(&mut self, pcm: Vec<u8>) -> Result<()>;
+    /// Switch the active recognition/translation context mid-session. Default
+    /// is a no-op so providers without a reconnect-based context mechanism (and
+    /// the mock provider) are unaffected. [`SonioxBYOK`](soniox::SonioxBYOK)
+    /// overrides this to reconnect with the new context.
+    async fn set_context(&mut self, _text: String) -> Result<()> {
+        Ok(())
+    }
     async fn next_event(&mut self) -> Option<TranslationEvent>;
     /// Initiate end-of-stream WITHOUT tearing the provider down: signal the
     /// remote that no more audio is coming, but keep [`next_event`] live so the
