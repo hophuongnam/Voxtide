@@ -680,3 +680,134 @@ describe('MainApp status bar truth', () => {
     expect(container.textContent ?? '').not.toContain('stt-rt-v5');
   });
 });
+
+describe('MainApp context presets', () => {
+  // `devices` (mics/loopbacks) is a module singleton, same as `session` and
+  // `transcript` below — it isn't reset by production code (in the real app
+  // it only ever populates once, from empty, before `selectedSource` can be
+  // set). Across tests in THIS file it persists, so without clearing it a
+  // fresh MainApp instance's boot `$effect` sees the PRIOR test's leftover
+  // device list as already non-empty and picks `selectedSource` immediately
+  // — before that instance's own get_config/list_loopback_sources calls
+  // resolve — letting a click fire onStart against a stale config. Both
+  // start-path tests below use the same "System Audio" device label, which
+  // is exactly what makes that race land. beforeEach protects test 1 from
+  // whatever ran earlier in the file; afterEach protects tests after this
+  // block (and keeps this block's own tests from depending on run order).
+  const resetDevices = async () => {
+    const { devices } = await import('../src/lib/stores.svelte');
+    devices.setLoopbacks([]);
+    devices.setMics([]);
+  };
+  beforeEach(resetDevices);
+  afterEach(async () => {
+    const { session, transcript } = await import('../src/lib/stores.svelte');
+    session.stop();
+    transcript.reset();
+    await resetDevices();
+  });
+
+  const loopback = [{ id: 'sys', label: 'System Audio', default: true }];
+
+  it('start sends the active preset\'s text as context, not the legacy blob', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+        // Deliberately non-empty and distinct from the preset text: if a
+        // regression sends `config.context` instead of the resolved preset,
+        // this exact string would show up in the assertion below.
+        context: 'stale legacy blob — must NOT be sent',
+        contexts: [{ id: 'p1', name: 'Standup', text: 'Speakers: Nam, Yuki.' }],
+        active_context_id: 'p1',
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics') return [];
+      if (cmd === 'list_loopback_sources') return loopback;
+      if (cmd === 'start_session') return 1;
+      return null;
+    });
+
+    const { container } = render(MainApp);
+    const scoped = within(container);
+    await waitForStartReady(container, 'System Audio');
+    await fireEvent.click(scoped.getByRole('button', { name: /Start/ }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('start_session', expect.objectContaining({
+        req: expect.objectContaining({ context: 'Speakers: Nam, Yuki.' }),
+      }));
+    });
+  });
+
+  it('start sends an empty context when active_context_id is null', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: '',
+        contexts: [{ id: 'p1', name: 'Standup', text: 'Speakers: Nam, Yuki.' }],
+        active_context_id: null,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics') return [];
+      if (cmd === 'list_loopback_sources') return loopback;
+      if (cmd === 'start_session') return 1;
+      return null;
+    });
+
+    const { container } = render(MainApp);
+    const scoped = within(container);
+    await waitForStartReady(container, 'System Audio');
+    await fireEvent.click(scoped.getByRole('button', { name: /Start/ }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('start_session', expect.objectContaining({
+        req: expect.objectContaining({ context: '' }),
+      }));
+    });
+  });
+
+  it('boot with a legacy context blob seeds exactly one preset and persists it once', async () => {
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return {
+        language_a: 'en', language_b: 'vi',
+        hotkey: 'Ctrl+Shift+V', theme: 'system',
+        default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
+        mode: 'meeting', font_size: 'm', show_pinyin: false,
+        context: 'Old global context',
+        contexts: [], active_context_id: null,
+      };
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+    render(MainApp);
+
+    // The seed persist is fire-and-forget (`void persist(...)`) — wait for
+    // the resulting set_config IPC call rather than asserting synchronously.
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.some((c) => c[0] === 'set_config')).toBe(true);
+    });
+
+    const setConfigCalls = invokeMock.mock.calls.filter((c) => c[0] === 'set_config');
+    expect(setConfigCalls).toHaveLength(1);
+    const cfgArg = (setConfigCalls[0]![1] as any).cfg;
+    expect(cfgArg.contexts).toHaveLength(1);
+    expect(cfgArg.contexts[0]).toMatchObject({ name: 'My context', text: 'Old global context' });
+    // Don't hard-code the generated uuid — assert the cross-reference instead.
+    expect(cfgArg.active_context_id).toBe(cfgArg.contexts[0]!.id);
+    expect(cfgArg.context).toBe('');
+  });
+});
