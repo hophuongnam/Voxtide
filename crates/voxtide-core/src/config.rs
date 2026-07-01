@@ -61,8 +61,32 @@ pub struct AppConfig {
     /// Optional free-text context (names, jargon, domain) sent to Soniox to
     /// bias recognition and translation. Empty by default. `#[serde(default)]`
     /// so older config.json files load with no context.
+    ///
+    /// Superseded by the `contexts` library below as the primary UI, but kept
+    /// untouched: Android still binds directly to it, and it is the migration
+    /// source the desktop frontend seeds `contexts` from on first boot.
     #[serde(default)]
     pub context: String,
+    /// Saved library of named context presets (desktop only), managed in
+    /// Settings and picked per-session on the main screen. Empty by default.
+    /// `#[serde(default)]` so older config.json files load with no presets.
+    #[serde(default)]
+    pub contexts: Vec<ContextPreset>,
+    /// The `id` of the currently selected preset in `contexts`, or `None` for
+    /// "no context". `#[serde(default)]` so older config.json files load
+    /// with no active selection.
+    #[serde(default)]
+    pub active_context_id: Option<String>,
+}
+
+/// A single named, saved context preset (desktop only). `id` is opaque and
+/// frontend-generated (`crypto.randomUUID`); `text` is the free-text payload
+/// sent to Soniox as `context.text` when this preset is active.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextPreset {
+    pub id: String,
+    pub name: String,
+    pub text: String,
 }
 
 fn default_mic_gain() -> f32 {
@@ -87,6 +111,8 @@ impl Default for AppConfig {
             mic_gain: 1.0,
             mic_agc: false,
             context: String::new(),
+            contexts: Vec::new(),
+            active_context_id: None,
         }
     }
 }

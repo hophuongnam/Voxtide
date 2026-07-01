@@ -1,4 +1,4 @@
-use voxtide_core::config::{AppConfig, ConfigStore, FontSize, Theme};
+use voxtide_core::config::{AppConfig, ConfigStore, ContextPreset, FontSize, Theme};
 use voxtide_core::translation::Mode;
 
 #[test]
@@ -110,6 +110,55 @@ fn context_round_trips_and_old_config_defaults_empty() {
     )
     .unwrap();
     assert_eq!(ConfigStore::at(&path).load().unwrap().context, "");
+}
+
+#[test]
+fn context_presets_round_trip_and_old_config_defaults_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConfigStore::at(dir.path().join("config.json"));
+
+    // A non-empty context library plus an active selection survives
+    // save → load unchanged.
+    let cfg = AppConfig {
+        contexts: vec![
+            ContextPreset {
+                id: "abc-123".into(),
+                name: "Standup".into(),
+                text: "Speakers: Nam, Yuki. Standup.".into(),
+            },
+            ContextPreset {
+                id: "def-456".into(),
+                name: "Client Acme".into(),
+                text: "Acme Corp. Topic: Q3 renewal.".into(),
+            },
+        ],
+        active_context_id: Some("abc-123".into()),
+        ..AppConfig::default()
+    };
+    store.save(&cfg).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.contexts, cfg.contexts);
+    assert_eq!(loaded.active_context_id, Some("abc-123".to_string()));
+
+    // A config.json predating the `contexts`/`active_context_id` fields loads
+    // with an empty library and no active selection (serde default) instead
+    // of failing — the migration-safety guarantee.
+    let path = dir.path().join("old.json");
+    std::fs::write(
+        &path,
+        r#"{
+  "language_a": "en",
+  "language_b": "vi",
+  "hotkey": "Ctrl+Shift+V",
+  "theme": "system",
+  "default_meeting_source": null,
+  "default_mic": null
+}"#,
+    )
+    .unwrap();
+    let loaded = ConfigStore::at(&path).load().unwrap();
+    assert!(loaded.contexts.is_empty());
+    assert!(loaded.active_context_id.is_none());
 }
 
 #[test]
