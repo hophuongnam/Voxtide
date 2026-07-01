@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use tauri::AppHandle;
@@ -14,10 +13,6 @@ pub struct AppState {
     pub controller: Arc<SessionController>,
     pub keychain: Keychain,
     pub config: ConfigStore,
-    /// Tracks the overlay window's visibility (set by the show/hide
-    /// commands) so the event forwarder can skip emitting every token
-    /// event into a hidden webview.
-    pub overlay_visible: Arc<AtomicBool>,
     /// Live sink for WebView-pushed mic PCM (Android Path B). Empty on desktop.
     pub mic_feed: voxtide_core::audio::webview_mic::MicFeed,
 }
@@ -45,7 +40,6 @@ pub async fn init(dir: PathBuf) -> voxtide_core::Result<AppState> {
         controller: Arc::new(SessionController::new(store)),
         keychain: Keychain::new(dir.join("secrets.json")),
         config: ConfigStore::at(dir.join("config.json")),
-        overlay_visible: Arc::new(AtomicBool::new(false)),
         mic_feed: voxtide_core::audio::webview_mic::new_mic_feed(),
     })
 }

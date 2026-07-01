@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use tauri::{AppHandle, Emitter};
 use voxtide_core::session::CoreEvent;
 
@@ -10,15 +8,16 @@ use voxtide_core::session::CoreEvent;
 /// hand-written `WireEvent` mirror + ~47-line copying match that could silently
 /// drift from `CoreEvent`. Shape is pinned by the tests below.
 ///
-/// Targeted emits: always to "main"; to "overlay" only while it's visible —
-/// a broadcast `emit` serialized + delivered every token event into the
-/// hidden overlay webview. (The rare `voxtide://config`/`voxtide://overlay`
-/// emits elsewhere stay broadcast.)
-pub fn forward(app: &AppHandle, overlay_visible: &AtomicBool, ev: CoreEvent) {
-    let _ = app.emit_to("main", "voxtide://event", &ev);
-    if overlay_visible.load(Ordering::Relaxed) {
-        let _ = app.emit_to("overlay", "voxtide://event", &ev);
-    }
+/// This must stay ONE broadcast `emit`. A previous "perf" version emitted
+/// per-window (`emit_to("main")` + `emit_to("overlay")` while visible), but
+/// the frontend listens via plain `listen()` = target `Any`, and Tauri
+/// delivers every emit — targeted or not — to `Any` listeners. Result: with
+/// the overlay visible each window received every token TWICE (doubled
+/// transcript), and the hidden-overlay skip never actually skipped. Don't
+/// reintroduce `emit_to` here without scoping the listeners in
+/// `src/lib/ipc.ts` to their own window label.
+pub fn forward(app: &AppHandle, ev: CoreEvent) {
+    let _ = app.emit("voxtide://event", &ev);
 }
 
 #[cfg(test)]

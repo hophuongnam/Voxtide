@@ -79,11 +79,10 @@ pub fn run() {
             // in `lifecycle::start_session`, which leaked one task per start/stop cycle.
             let mut rx = state.controller.subscribe();
             let app_handle = app.handle().clone();
-            let overlay_visible = state.overlay_visible.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     match rx.recv().await {
-                        Ok(ev) => crate::events::forward(&app_handle, &overlay_visible, ev),
+                        Ok(ev) => crate::events::forward(&app_handle, ev),
                         // Lagged: some events were dropped because we fell behind the sender.
                         // Treat as a refresh signal — continue rather than breaking.
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
