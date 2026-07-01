@@ -428,8 +428,17 @@
   // Per-session context-preset pick: persist-every-pick (mirrors every other
   // toolbar control), never batched with a later save.
   function onContextPick(id: string | null) {
+    // Snapshot the outgoing selection BEFORE persist() — persist() is
+    // fire-and-forget and config.update() only reassigns config.config after
+    // its `await persistConfig(...)` resolves, so reading `prev` after this
+    // call would race that reassignment; reading before is correct regardless
+    // of that internal timing (now or after any future refactor).
+    const prev = config.config?.active_context_id ?? null;
     void persist({ active_context_id: id });
-    if (session.recording) {
+    // Mid-session: only reconnect when the selection actually CHANGES —
+    // re-picking the already-active context would tear down + reopen the
+    // Soniox socket and drop the unfinalized audio tail for no benefit.
+    if (session.recording && id !== prev) {
       // Resolve directly from `id`, NOT via resolveActiveContext(config.config):
       // persist() above is fire-and-forget, so config.config.active_context_id
       // may still hold the OLD value at this point.

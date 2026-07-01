@@ -829,11 +829,17 @@ describe('MainApp mid-session context switch', () => {
     mode: 'meeting', font_size: 'm', show_pinyin: false,
     context: '',
     contexts: [{ id: 'p1', name: 'Standup', text: 'Speakers: Nam, Yuki.' }],
-    active_context_id: null,
+    // Widen from the inferred `null` literal: bootMock's override below
+    // (`{ ...contextsConfig, active_context_id: 'p1' }`) needs the field's
+    // static type to be `string | null`, matching the real AppConfig shape.
+    active_context_id: null as string | null,
   };
-  const bootMock = () =>
+  // Optional override so a test can boot with a non-null `active_context_id`
+  // (e.g. to exercise "re-pick the already-active preset") without duplicating
+  // the whole mockImplementation.
+  const bootMock = (cfg: typeof contextsConfig = contextsConfig) =>
     (invokeMock as any).mockImplementation(async (cmd: string) => {
-      if (cmd === 'get_config') return contextsConfig;
+      if (cmd === 'get_config') return cfg;
       if (cmd === 'has_api_key') return true;
       if (cmd === 'list_sessions') return [];
       if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
@@ -885,6 +891,45 @@ describe('MainApp mid-session context switch', () => {
         cfg: expect.objectContaining({ active_context_id: 'p1' }),
       }));
     });
+    expect(invokeMock).not.toHaveBeenCalledWith('update_context', expect.anything());
+  });
+
+  // Once `active_context_id` is already 'p1', the trigger's own label reads
+  // "Standup" too (see ContextPicker's `triggerLabel`) — the SAME text as the
+  // dropdown option once the panel opens. A second `findByText('Standup')`
+  // would then see two matches and throw "multiple elements found", so grab
+  // the trigger node up front and, once the panel is open, click whichever
+  // "Standup" match ISN'T that same node — robust regardless of DOM order.
+  async function reopenAndRepickStandup(
+    container: HTMLElement,
+    findByText: (text: string) => Promise<HTMLElement>,
+  ) {
+    const trigger = await findByText('Standup');
+    await fireEvent.click(trigger);
+    const matches = within(container).getAllByText('Standup');
+    const option = matches.find((el) => el !== trigger);
+    if (!option) throw new Error('dropdown "Standup" option not found');
+    await fireEvent.click(option);
+  }
+
+  it('re-picking the ALREADY-active context WHILE RECORDING does not call update_context', async () => {
+    invokeMock.mockClear();
+    bootMock({ ...contextsConfig, active_context_id: 'p1' });
+    const { container, findByText } = render(MainApp);
+    const { session } = await import('../src/lib/stores.svelte');
+    session.start(7, Date.now());
+
+    await reopenAndRepickStandup(container, findByText);
+
+    // persist() is unconditional and idempotent — re-picking the same id still
+    // saves (same shape as every other pick).
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+        cfg: expect.objectContaining({ active_context_id: 'p1' }),
+      }));
+    });
+    // But the selection didn't actually change, so the mid-session reconnect
+    // must be suppressed — no update_context call, no dropped audio tail.
     expect(invokeMock).not.toHaveBeenCalledWith('update_context', expect.anything());
   });
 });
