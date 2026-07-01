@@ -50,45 +50,42 @@
 
   let leftEl: HTMLElement | null = $state(null);
   let rightEl: HTMLElement | null = $state(null);
-  let syncing = false;
-  let autoScrolling = false;
-  let atBottom = true;
+  let follow = true;
   const NEAR_BOTTOM_PX = 32;
 
-  function snapBottom(el: HTMLElement | null) {
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
+  // Echo suppression is value-based, not timing-based. Every programmatic
+  // scroll (follow-tail snap or column mirror) records its exact target and
+  // arms a one-shot: the next scroll event landing on that value is our own
+  // echo and is consumed; anything else is the user. Each event disarms the
+  // slot, so a stale target can't keep eating the user's later scrolls back to
+  // the bottom. The old rAF-window guards raced under rapid live partials —
+  // an echo firing just after its guard cleared latched follow-tail off, so
+  // the transcript "didn't auto-scroll all the time".
+  const prog = new WeakMap<HTMLElement, number>();
+  function setScroll(el: HTMLElement, top: number) {
+    el.scrollTop = top;
+    prog.set(el, el.scrollTop); // read back post-clamp
   }
+  function isEcho(el: HTMLElement): boolean {
+    const p = prog.get(el);
+    prog.delete(el); // disarm on every event — user or echo
+    return p !== undefined && Math.abs(el.scrollTop - p) < 2;
+  }
+  const nearBottom = (el: HTMLElement) =>
+    el.scrollTop + el.clientHeight >= el.scrollHeight - NEAR_BOTTOM_PX;
 
   $effect(() => {
     if (!leftEl || !rightEl) return;
     const l = leftEl, r = rightEl;
-    const mirror = (from: HTMLElement, to: HTMLElement) => {
-      // Skip mirroring while auto-scroll has each column independently
-      // pinned to its own bottom — otherwise the mirror clobbers the
-      // explicit `to.scrollTop = to.scrollHeight` when the two columns
-      // have different scrollHeights.
-      if (syncing || autoScrolling) return;
-      syncing = true;
-      to.scrollTop = from.scrollTop;
-      requestAnimationFrame(() => { syncing = false; });
+    // A genuine user scroll sets follow intent from THAT column's own geometry
+    // (heights differ, so either column must be able to re-engage), then
+    // mirrors to the other so the two columns browse history together.
+    const handler = (self: HTMLElement, other: HTMLElement) => () => {
+      if (isEcho(self)) return;
+      follow = nearBottom(self);
+      setScroll(other, self.scrollTop);
     };
-    const nearBottom = (el: HTMLElement) =>
-      el.scrollTop + el.clientHeight >= el.scrollHeight - NEAR_BOTTOM_PX;
-    // Each column judges follow-tail from its OWN geometry, but only for USER
-    // scrolls: `syncing` marks mirror echoes, which must never vote — the
-    // mirror clamps the shorter column near its own bottom, so an echo there
-    // would re-engage while the user is scrolling AWAY in the taller one.
-    // (Judging only the left column was the old bug: with a taller left,
-    // bottoming out the right could never re-engage.)
-    const onL = () => {
-      if (!syncing && !autoScrolling) atBottom = nearBottom(l);
-      mirror(l, r);
-    };
-    const onR = () => {
-      if (!syncing && !autoScrolling) atBottom = nearBottom(r);
-      mirror(r, l);
-    };
+    const onL = handler(l, r), onR = handler(r, l);
     l.addEventListener('scroll', onL, { passive: true });
     r.addEventListener('scroll', onR, { passive: true });
     return () => {
@@ -97,21 +94,18 @@
     };
   });
 
-  // Follow-tail: when transcript grows AND user was at bottom, snap to bottom.
-  // Reads content lengths so Svelte re-runs this on any growth.
+  // Follow-tail: when transcript grows AND the user is still following, snap
+  // both columns to their own bottoms. Reads content lengths so Svelte re-runs
+  // this on any growth; one rAF lets layout settle so scrollHeight is final.
   $effect(() => {
-    // Track every content surface as a reactive dep.
     original.length; translation.length;
     liveOriginal.length; liveTranslation.length;
-    if (!atBottom || !leftEl || !rightEl) return;
-    autoScrolling = true;
-    // Double-rAF: first frame lets the browser apply the new DOM layout so
-    // scrollHeight is settled; second frame releases the autoScrolling guard
-    // after the snap-induced scroll events have drained.
+    if (!follow || !leftEl || !rightEl) return;
     const l = leftEl, r = rightEl;
     requestAnimationFrame(() => {
-      snapBottom(l); snapBottom(r);
-      requestAnimationFrame(() => { autoScrolling = false; });
+      if (!follow) return; // user scrolled up between growth and this frame
+      setScroll(l, l.scrollHeight);
+      setScroll(r, r.scrollHeight);
     });
   });
 </script>

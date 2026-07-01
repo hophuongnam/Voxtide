@@ -141,36 +141,59 @@ describe('TranscriptPane follow-tail', () => {
   });
   const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
+  const geom = (el: HTMLElement, scrollHeight: number) => {
+    Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
+  };
+
+  it('stays engaged when a growth-induced scroll echo fires (the reported bug)', async () => {
+    // Regression for "didn't auto-scroll all the time": content grows (a new
+    // final row / live partial) but the browser leaves scrollTop where it was,
+    // then a scroll echo fires. The old rAF-guarded code re-judged geometry
+    // (now short of the taller bottom) and latched follow-tail OFF. Follow must
+    // survive: the echo lands on the value we last snapped to → consumed.
+    const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
+    const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
+    geom(left!, 1000); geom(right!, 500);
+    await rerender(baseProps(21)); // growth → snap pins both to bottom
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000); // engaged
+
+    // Content grew (1000 → 1200) WITHOUT the browser moving scrollTop, then the
+    // deferred scroll event for the earlier snap fires at the stale position.
+    geom(left!, 1200);
+    left!.dispatchEvent(new Event('scroll')); // scrollTop 1000 === last snap → echo
+    await rerender(baseProps(22));
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1200); // still following → snapped to new bottom
+  });
+
   it('re-engages from the right column; mirror echoes never override the user column', async () => {
     const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
     const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
     // Fake geometry: TALL left (1000), SHORT right (500), 100px viewports.
-    const geom = (el: HTMLElement, scrollHeight: number) => {
-      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
-      Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
-    };
     geom(left!, 1000); geom(right!, 500);
-    // Drain the mount-time auto-scroll (autoScrolling guard clears on 2nd rAF).
-    await raf(); await raf(); await raf();
+    await rerender(baseProps(21)); // growth → snap pins both to their bottoms
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000); // engaged
 
-    // User scrolls the TALL column up, away from its bottom → disengage.
+    // User scrolls the TALL column up, away from its bottom → disengage. The
+    // handler mirrors that position onto the SHORT column.
     left!.scrollTop = 500; // 500+100 < 1000-32
     left!.dispatchEvent(new Event('scroll'));
-    // The mirror's echo on the SHORT column (clamped near ITS bottom) fires
-    // while syncing — it must NOT re-engage follow-tail.
-    right!.scrollTop = 460; // 460+100 >= 500-32 → "near bottom" if judged
+    // The mirror's echo on the short column fires next — it lands on the value
+    // we just wrote there, so it's consumed and must NOT re-engage follow-tail.
     right!.dispatchEvent(new Event('scroll'));
 
-    await rerender(baseProps(21)); // growth: would snap if (wrongly) engaged
-    await raf(); await raf(); await raf();
+    await rerender(baseProps(22)); // growth: would snap if (wrongly) engaged
+    await raf(); await raf();
     expect(left!.scrollTop).toBe(500); // no snap → still disengaged
 
     // Now the USER scrolls the right column to its bottom → re-engage.
-    await raf(); // let the previous mirror's syncing flag clear
-    right!.scrollTop = 470;
+    right!.scrollTop = 480; // 480+100 >= 500-32
     right!.dispatchEvent(new Event('scroll'));
-    await rerender(baseProps(22));
-    await raf(); await raf(); await raf();
+    await rerender(baseProps(23));
+    await raf(); await raf();
     expect(left!.scrollTop).toBe(1000); // snapped → re-engaged from the right
   });
 });
