@@ -149,6 +149,7 @@ pub fn run() {
             commands::sessions::delete_session,
             commands::lifecycle::start_session,
             commands::lifecycle::stop_session,
+            commands::lifecycle::update_context,
             #[cfg(desktop)] commands::overlay::show_overlay,
             #[cfg(desktop)] commands::overlay::hide_overlay,
             #[cfg(desktop)] commands::overlay::set_overlay_click_through,

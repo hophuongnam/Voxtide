@@ -151,3 +151,12 @@ pub async fn start_session(state: State<'_, AppState>, req: StartReq) -> Result<
 pub async fn stop_session(state: State<'_, AppState>) -> Result<(), String> {
     state.controller.stop().await.map_err(|e| e.to_string())
 }
+
+/// Mid-session context switch: routes to the running session's provider via
+/// `SessionController::update_context`, which is itself a best-effort no-op
+/// when no session is active — so this command is infallible too.
+#[tauri::command]
+pub async fn update_context(text: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.controller.update_context(text).await;
+    Ok(())
+}

@@ -119,6 +119,10 @@ struct RunningSession {
     /// a separate channel from `stop_audio` because closing the audio source alone leaves the
     /// worker blocked on `provider.next_event()`.
     stop_worker: tokio::sync::oneshot::Sender<()>,
+    /// Routes a mid-session [`SessionController::update_context`] call to the worker's
+    /// `provider.set_context(text).await`. A separate channel from `stop_audio`/`stop_worker`
+    /// because a context switch is neither of those things: the session keeps running.
+    update_context: tokio::sync::mpsc::Sender<String>,
 }
 
 /// RAII guard that resets the [`RunState`] slot back to [`RunState::Idle`] if
@@ -258,6 +262,10 @@ impl SessionController {
         let running = Arc::clone(&self.running);
 
         let (stop_worker_tx, mut stop_worker_rx) = tokio::sync::oneshot::channel::<()>();
+        // Bounded at 8: a mid-session context switch is a rare, user-driven action (picking a
+        // preset), never a hot path — a small buffer just means `update_context` never has to
+        // block the caller waiting for the worker to drain a backlog.
+        let (update_ctx_tx, mut update_ctx_rx) = tokio::sync::mpsc::channel::<String>(8);
 
         let join = tokio::spawn(async move {
             let mut ctx = EventCtx {
@@ -276,6 +284,12 @@ impl SessionController {
             // Set when the loop exits via the biased explicit-stop arm; gates the
             // post-loop EOS-drain (other exit paths already drained the provider).
             let mut stop_requested = false;
+            // Mirrors `audio_done`'s role for `update_ctx_rx`: once the sender side closes
+            // (e.g. a slow stop() timed out and dropped `RunningSession` while this task was
+            // still parked elsewhere), a closed mpsc receiver resolves to `None` on EVERY poll
+            // rather than going pending — without this guard the arm would busy-spin and, under
+            // `biased`, starve the audio/event arms below it.
+            let mut ctx_closed = false;
 
             loop {
                 tokio::select! {
@@ -326,6 +340,21 @@ impl SessionController {
                                 audio_done = true;
                                 provider.eos().await;
                             }
+                        }
+                    }
+                    // Mid-session context switch requested via `SessionController::update_context`.
+                    // Disabled once the sender side closes, mirroring the `audio_rx` None-handling
+                    // above — see `ctx_closed`'s doc comment for why the guard is required.
+                    maybe_text = update_ctx_rx.recv(), if !ctx_closed => {
+                        match maybe_text {
+                            Some(text) => {
+                                if let Err(e) = provider.set_context(text).await {
+                                    // Log-and-continue: a failed switch must NOT kill the session
+                                    // (the user just keeps the prior context; they can retry).
+                                    tracing::warn!(?e, "provider set_context (mid-session)");
+                                }
+                            }
+                            None => { ctx_closed = true; }
                         }
                     }
                     // Receive translation events. Terminates the loop on None (closed) or Stopped.
@@ -410,6 +439,7 @@ impl SessionController {
             join,
             stop_audio,
             stop_worker: stop_worker_tx,
+            update_context: update_ctx_tx,
         });
         // Disarm: setup succeeded, do not reset the slot on drop.
         guard.armed = false;
@@ -438,6 +468,25 @@ impl SessionController {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), r.join).await;
         }
         Ok(())
+    }
+
+    /// Route a mid-session context switch to the running session's provider. Best-effort and
+    /// infallible: switching while idle/pending is a legitimate no-op (there's no session to
+    /// switch), not an error, and a `send` failure here only means the session is already
+    /// ending — nothing useful to surface to the caller either way.
+    ///
+    /// `running` is a `parking_lot::Mutex` (sync, not tokio): the guard is scoped to the block
+    /// below and dropped before the `await`, so it is never held across a suspension point.
+    pub async fn update_context(&self, text: String) {
+        let sender = {
+            match &*self.running.lock() {
+                RunState::Running(r) => Some(r.update_context.clone()),
+                _ => None,
+            }
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(text).await;
+        }
     }
 }
 
