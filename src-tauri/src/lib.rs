@@ -114,7 +114,7 @@ pub fn run() {
             // in place of `main`). Properties mirror the former conf entry.
             #[cfg(desktop)]
             {
-                tauri::WebviewWindowBuilder::new(
+                let overlay = tauri::WebviewWindowBuilder::new(
                     app,
                     "overlay",
                     tauri::WebviewUrl::App("overlay.html".into()),
@@ -128,7 +128,29 @@ pub fn run() {
                 .transparent(true)
                 .shadow(false)
                 .visible(false)
+                // Follow the user across Spaces (macOS: CanJoinAllSpaces;
+                // no-op on Windows). always_on_top alone doesn't cross Spaces.
+                .visible_on_all_workspaces(true)
                 .build()?;
+                // CanJoinAllSpaces still excludes OTHER apps' fullscreen
+                // Spaces; captions over a fullscreen video/presentation also
+                // need FullScreenAuxiliary, which tauri/tao never set. OR it
+                // in (read-modify-write preserves CanJoinAllSpaces).
+                #[cfg(target_os = "macos")]
+                if let Ok(ptr) = overlay.ns_window() {
+                    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+                    // SAFETY: ptr is the live NSWindow of the window built
+                    // above; setup runs on the main thread, as AppKit requires.
+                    unsafe {
+                        let ns = &*ptr.cast::<NSWindow>();
+                        ns.setCollectionBehavior(
+                            ns.collectionBehavior()
+                                | NSWindowCollectionBehavior::FullScreenAuxiliary,
+                        );
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                let _ = overlay;
             }
             Ok(())
         })

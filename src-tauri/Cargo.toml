@@ -30,6 +30,11 @@ tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"
 dirs = "5"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already in the graph via tao; direct dep only to OR FullScreenAuxiliary
+# into the overlay's collection behavior (tauri doesn't expose it).
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSResponder"] }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile.workspace = true
