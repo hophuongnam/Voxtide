@@ -12,6 +12,10 @@
     audioFormat: string;
     version: string;
     width: number;
+    /** True while a mid-session context switch's reconnect is in flight
+     *  (from the pick until the new socket goes active, or the session
+     *  stops). Optional so every existing call site is unaffected. */
+    contextSwitching?: boolean;
   }
   const p: Props = $props();
   const showFormat   = $derived(p.width >= 900);
@@ -33,6 +37,9 @@
     </span>
     <span>{p.recording ? formatElapsed(p.elapsedMs) : '—'}</span>
   </div>
+  {#if p.contextSwitching}
+    <span style:color="var(--vt-subtle)">applying context…</span>
+  {/if}
   <span style:color="var(--vt-dim)">│</span>
   <div class="flex items-center gap-2">
     <LevelMeter active={p.recording} />

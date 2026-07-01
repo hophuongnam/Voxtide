@@ -811,3 +811,80 @@ describe('MainApp context presets', () => {
     expect(cfgArg.context).toBe('');
   });
 });
+
+describe('MainApp mid-session context switch', () => {
+  // `session` is a module singleton (see the "MainApp context presets" block
+  // above) — stop it after every test so a "recording" test can't bleed into
+  // a later one, in either direction.
+  afterEach(async () => {
+    const { session, transcript } = await import('../src/lib/stores.svelte');
+    session.stop();
+    transcript.reset();
+  });
+
+  const contextsConfig = {
+    language_a: 'en', language_b: 'vi',
+    hotkey: 'Ctrl+Shift+V', theme: 'system',
+    default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
+    mode: 'meeting', font_size: 'm', show_pinyin: false,
+    context: '',
+    contexts: [{ id: 'p1', name: 'Standup', text: 'Speakers: Nam, Yuki.' }],
+    active_context_id: null,
+  };
+  const bootMock = () =>
+    (invokeMock as any).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_config') return contextsConfig;
+      if (cmd === 'has_api_key') return true;
+      if (cmd === 'list_sessions') return [];
+      if (cmd === 'list_mics' || cmd === 'list_loopback_sources') return [];
+      return null;
+    });
+
+  // The trigger's "No context" label renders immediately (before get_config
+  // even resolves — activeId defaults to null either way), so it's only a
+  // mount gate. "Standup" only exists once the boot fetch lands and populates
+  // `contexts`, so `findByText` (which polls) is the real config-loaded gate —
+  // a plain `getByText` here would race the boot promise chain and could open
+  // the panel while `contexts` is still `[]`.
+  async function pickStandup(findByText: (text: string) => Promise<HTMLElement>) {
+    const trigger = await findByText('No context');
+    await fireEvent.click(trigger);
+    const option = await findByText('Standup');
+    await fireEvent.click(option);
+  }
+
+  it('picking a context WHILE RECORDING calls update_context with the picked preset\'s text', async () => {
+    invokeMock.mockClear();
+    bootMock();
+    const { findByText } = render(MainApp);
+    const { session } = await import('../src/lib/stores.svelte');
+    session.start(7, Date.now());
+
+    await pickStandup(findByText);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('update_context', { text: 'Speakers: Nam, Yuki.' });
+    });
+    // The pick still persists as the default for next time, same as stopped.
+    expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+      cfg: expect.objectContaining({ active_context_id: 'p1' }),
+    }));
+  });
+
+  it('picking a context WHILE STOPPED only persists — no update_context call', async () => {
+    invokeMock.mockClear();
+    bootMock();
+    const { findByText } = render(MainApp);
+    const { session } = await import('../src/lib/stores.svelte');
+    session.stop(); // belt-and-braces: this store is a module singleton shared across tests.
+
+    await pickStandup(findByText);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('set_config', expect.objectContaining({
+        cfg: expect.objectContaining({ active_context_id: 'p1' }),
+      }));
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('update_context', expect.anything());
+  });
+});

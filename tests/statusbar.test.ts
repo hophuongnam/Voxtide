@@ -43,3 +43,18 @@ describe('StatusBar visibility breakpoints', () => {
     expect(container.textContent ?? '').not.toContain('one_way');
   });
 });
+
+describe('StatusBar mid-session context-switch hint', () => {
+  it('shows "applying context…" when contextSwitching is true', () => {
+    const { container } = render(StatusBar, { props: { ...props, width: 920, contextSwitching: true } });
+    expect(container.textContent ?? '').toContain('applying context…');
+  });
+  it('shows no hint when contextSwitching is false', () => {
+    const { container } = render(StatusBar, { props: { ...props, width: 920, contextSwitching: false } });
+    expect(container.textContent ?? '').not.toContain('applying context…');
+  });
+  it('shows no hint when contextSwitching is omitted (existing call sites unaffected)', () => {
+    const { container } = render(StatusBar, { props: { ...props, width: 920 } });
+    expect(container.textContent ?? '').not.toContain('applying context…');
+  });
+});

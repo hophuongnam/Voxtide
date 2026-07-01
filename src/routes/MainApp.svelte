@@ -19,7 +19,7 @@
     appInfo as fetchAppInfo, deleteSession,
     getConfig, getSession, hasApiKey, listLoopbackSources, listMics, listSessions,
     onCoreEvent, onOverlayVisibility, searchTranscripts, startSession, stopSession,
-    showOverlay, hideOverlay,
+    showOverlay, hideOverlay, updateContext,
   } from '../lib/ipc';
   import ConfirmDeleteSheet from '../components/sidebar/ConfirmDeleteSheet.svelte';
   import { coalesceTokens, transcript, session, config, devices } from '../lib/stores.svelte';
@@ -48,6 +48,10 @@
   // a structured start error (device-missing/other), a non-structured rejection,
   // or a provider `error` core event (e.g. a rejected Soniox API key).
   let appError = $state<string | null>(null);
+  // True from the moment a mid-session context pick fires updateContext()
+  // until the reconnect's new socket goes active (or the session stops) —
+  // drives the StatusBar "applying context…" hint.
+  let contextSwitching = $state(false);
 
   // Past-session viewer. null = follow live capture; otherwise show pastOriginal/pastTranslation.
   let viewingId = $state<number | null>(null);
@@ -201,6 +205,8 @@
         // Drop the in-flight partial: nothing will finalize it now, and a
         // leftover live line blinks forever under the committed transcript.
         transcript.clearLive();
+        // Safety: a stuck switch flag can't survive a stop.
+        contextSwitching = false;
         listSessions().then(v => sessions = v);
         break;
       case 'transcript-live':
@@ -210,7 +216,11 @@
       case 'utterance-break':
         transcript.utteranceBreak(); break;
       case 'connection-state':
-        session.setConnection(ev.state, ev.attempt, ev.retry_in_ms); break;
+        session.setConnection(ev.state, ev.attempt, ev.retry_in_ms);
+        // The reconnect a context switch triggers ends in Connected →
+        // state:"active", which clears the hint (see onContextPick).
+        if (ev.state === 'active') contextSwitching = false;
+        break;
       case 'latency': session.setLatency(ev.median_ms); break;
       case 'error': appError = ev.message; break;
     }
@@ -419,6 +429,22 @@
   // toolbar control), never batched with a later save.
   function onContextPick(id: string | null) {
     void persist({ active_context_id: id });
+    if (session.recording) {
+      // Resolve directly from `id`, NOT via resolveActiveContext(config.config):
+      // persist() above is fire-and-forget, so config.config.active_context_id
+      // may still hold the OLD value at this point.
+      const text = config.config?.contexts.find((c) => c.id === id)?.text ?? '';
+      // ponytail: infer the switch locally for instant feedback instead of
+      // widening ConnectionState['state'] with a "context-switching" literal.
+      // That string already flows through the wire harmlessly (JSON has no
+      // static type over the IPC boundary), and every state renderer
+      // (StatusBar here, plus the overlay/FaceToFace views) already falls
+      // through on states it doesn't special-case — so typing it through the
+      // duplicated union would be churn for no visual payoff. Cleared above
+      // on the next "active" connection-state (or on session-stopped).
+      contextSwitching = true;
+      void updateContext(text);
+    }
   }
   async function onReadingChange(next: AppConfig) {
     const c = config.config;
@@ -546,7 +572,8 @@
         model={backendInfo?.model ?? '—'}
         audioFormat={audioFormat}
         version={__APP_VERSION__}
-        width={mainWidth - 240} />
+        width={mainWidth - 240}
+        contextSwitching={contextSwitching} />
     </div>
   </div>
 </VoxWindow>

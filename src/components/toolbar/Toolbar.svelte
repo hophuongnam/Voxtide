@@ -51,7 +51,9 @@
     <AudioSourcePicker mode={p.mode} selected={p.source} options={p.sourceOptions} onselect={p.onsource} />
   </div>
   <div class="ml-1.5">
-    <ContextPicker contexts={p.contexts} activeId={p.activeContextId} disabled={p.recording}
+    <!-- Interactive while recording too — picking mid-session triggers a
+         reconnect-with-new-context in MainApp's onContextPick. -->
+    <ContextPicker contexts={p.contexts} activeId={p.activeContextId} disabled={false}
                    onpick={p.oncontextpick} onedit={p.oncontextedit} />
   </div>
   {#if p.mode === 'meeting'}

@@ -63,6 +63,10 @@ export interface StartReq {
 }
 export const startSession = (req: StartReq) => invoke<number>('start_session', { req });
 export const stopSession  = () => invoke<void>('stop_session');
+/** Mid-session context switch: reconnects the active provider with a new
+ *  `context` payload in place (same session/transcript). A no-op on the
+ *  backend when no session is running. */
+export const updateContext = (text: string) => invoke<void>('update_context', { text });
 
 // --- overlay --------------------------------------------------------------
 export const showOverlay = () => invoke<void>('show_overlay');
