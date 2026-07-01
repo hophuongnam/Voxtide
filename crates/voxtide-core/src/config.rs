@@ -61,10 +61,6 @@ pub struct AppConfig {
     /// Optional free-text context (names, jargon, domain) sent to Soniox to
     /// bias recognition and translation. Empty by default. `#[serde(default)]`
     /// so older config.json files load with no context.
-    ///
-    /// Superseded by the `contexts` library below as the primary UI, but kept
-    /// untouched: Android still binds directly to it, and it is the migration
-    /// source the desktop frontend seeds `contexts` from on first boot.
     #[serde(default)]
     pub context: String,
     /// Saved library of named context presets (desktop only), managed in
