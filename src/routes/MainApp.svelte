@@ -279,12 +279,13 @@
           .catch((e) => console.debug('app_info failed', e));
 
         const cfg = await getConfig();
+        config.setConfig(cfg);
         // One-time migration from the legacy single-blob context to the
         // preset library (see src/lib/context.ts) — no-op once a library
         // already exists or there was no legacy text to seed from.
         const seeded = seedContextFromLegacy(cfg);
-        config.setConfig(seeded ?? cfg);
         if (seeded) {
+          config.setConfig(seeded);
           void persist({ contexts: seeded.contexts, active_context_id: seeded.active_context_id, context: '' });
         }
         mode = cfg.mode;
