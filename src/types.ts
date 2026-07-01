@@ -24,6 +24,22 @@ export interface AppConfig {
   // Optional free-text context (names, jargon, domain) sent to Soniox to bias
   // recognition and translation. Empty by default.
   context: string;
+  // Saved library of named context presets (desktop only), managed in
+  // Settings and picked per-session on the main screen. Empty by default.
+  contexts: ContextPreset[];
+  // The `id` of the currently selected preset in `contexts`, or `null` for
+  // "no context". `null` by default.
+  active_context_id: string | null;
+}
+
+// A single named, saved context preset (desktop only). `id` is opaque and
+// frontend-generated (`crypto.randomUUID`); `text` is the free-text payload
+// sent to Soniox as `context.text` when this preset is active. Mirrors
+// `ContextPreset` in crates/voxtide-core/src/config.rs.
+export interface ContextPreset {
+  id: string;
+  name: string;
+  text: string;
 }
 
 export interface SessionRow {

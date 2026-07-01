@@ -7,6 +7,7 @@ const cfg: AppConfig = {
   language_a: 'en', language_b: 'vi', hotkey: 'Ctrl+Shift+V',
   theme: 'system', default_meeting_source: null, default_mic: null, meeting_capture_mic: false,
   mode: 'meeting', font_size: 'm', show_pinyin: false, mic_gain: 1, mic_agc: false, context: '',
+  contexts: [], active_context_id: null,
 };
 
 describe('ReadingControls', () => {
