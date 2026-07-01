@@ -145,4 +145,42 @@ describe('OverlayApp', () => {
       clearTauri();
     }
   });
+
+  it('ignores a transient "context-switching" connection-state and keeps showing the transcript', async () => {
+    setTauri();
+    try {
+      const { container } = render(OverlayApp);
+      await waitFor(() => expect(listeners.has('voxtide://event')).toBe(true));
+      emitEvent('voxtide://event', { kind: 'session-started', session_id: 1, mode: 'meeting' });
+      emitEvent('voxtide://event', {
+        kind: 'transcript-final', status: 'translation', text: 'Đang ghi âm.',
+        language: 'vi', chip: 'A', ts_ms: 1,
+      });
+      emitEvent('voxtide://event', { kind: 'utterance-break' });
+      await waitFor(() => {
+        expect(container.textContent).toContain('Đang ghi âm.');
+      });
+
+      // The Rust worker emits this while reconnecting to apply a new context — a value
+      // outside ConnectionState['state']'s declared union, so it arrives as a plain
+      // untyped payload here (mirroring the real wire, which has no static type).
+      emitEvent('voxtide://event', {
+        kind: 'connection-state', state: 'context-switching', attempt: null, retry_in_ms: null,
+      });
+
+      // The awaited waitFor below also serves as a flush point: any (incorrect) reactive
+      // update from the emit above is queued as a microtask ahead of this assertion, so by
+      // the time control returns here the DOM reflects the real post-emit state. Assert the
+      // transcript captured before the switch is still visible — i.e. `connState` stayed
+      // 'active' and the overlay never fell through to OverlayWindow's idle {:else}.
+      await waitFor(() => {
+        expect(container.textContent).toContain('Đang ghi âm.');
+      });
+      expect(container.textContent).not.toContain('Waiting for audio');
+      expect(container.textContent).not.toContain('open the main window');
+      expect(container.textContent).not.toContain('Reconnecting…');
+    } finally {
+      clearTauri();
+    }
+  });
 });

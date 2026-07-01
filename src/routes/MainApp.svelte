@@ -436,12 +436,13 @@
       const text = config.config?.contexts.find((c) => c.id === id)?.text ?? '';
       // ponytail: infer the switch locally for instant feedback instead of
       // widening ConnectionState['state'] with a "context-switching" literal.
-      // That string already flows through the wire harmlessly (JSON has no
-      // static type over the IPC boundary), and every state renderer
-      // (StatusBar here, plus the overlay/FaceToFace views) already falls
-      // through on states it doesn't special-case — so typing it through the
-      // duplicated union would be churn for no visual payoff. Cleared above
-      // on the next "active" connection-state (or on session-stopped).
+      // That string flows through the wire without a type error (JSON has no
+      // static type over the IPC boundary), but it is NOT harmless in every
+      // renderer: OverlayApp.svelte explicitly ignores it (allow-list guard)
+      // because its overlay would otherwise flash the idle placeholder mid-switch.
+      // StatusBar here never reads connection.state at all — it uses this
+      // local flag — so it only needs the instant hint. Cleared above on the
+      // next "active" connection-state (or on session-stopped).
       contextSwitching = true;
       void updateContext(text);
     }

@@ -68,9 +68,15 @@
         flushPending();
         break;
       case 'connection-state':
-        connState = ev.state;
-        attempt = ev.attempt;
-        retryInMs = ev.retry_in_ms;
+        // ponytail: the wire may carry a transient "context-switching" (emitted while the
+        // worker reconnects to apply a new context) that is outside this union's declared
+        // type. Ignore it here — keep the last real state so the overlay keeps showing the
+        // transcript instead of flashing OverlayWindow's idle {:else} placeholder mid-switch.
+        if (ev.state === 'active' || ev.state === 'reconnecting' || ev.state === 'idle') {
+          connState = ev.state;
+          attempt = ev.attempt;
+          retryInMs = ev.retry_in_ms;
+        }
         break;
       case 'session-started':
         connState = 'active';
