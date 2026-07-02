@@ -72,6 +72,18 @@ pub fn build_initial_config(cfg: &SessionConfig, context: &str) -> Value {
 
 pub const MAX_ATTEMPTS: u32 = 6;
 
+/// Ceiling on a single WebSocket connect (TCP + TLS + upgrade). Without it a
+/// blackholed path (SYN dropped, TLS handshake stalled) parks the background
+/// task for minutes — macOS TCP gives up after ~75 s per attempt, a stalled
+/// TLS handshake never — during which no audio is drained and no events flow.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Ceiling on a single WebSocket write (initial config, audio frame, EOS
+/// sentinel). A half-dead socket (peer vanished mid-session) otherwise blocks
+/// the writer for the OS retransmission timeout — 10+ minutes of silent stall
+/// instead of a visible reconnect.
+pub const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub fn next_backoff_ms(attempt: u32) -> u64 {
     // attempt is 1-indexed.
     let raw = match attempt {
@@ -107,9 +119,17 @@ pub struct SonioxBYOK {
     /// domain). Soniox-specific knob, so it lives on the provider rather than
     /// the provider-agnostic `SessionConfig`. Empty = omitted from the wire.
     context: String,
+    /// Per-attempt connect ceiling, injectable so tests can collapse it (a
+    /// stall test would otherwise sit out the real 10 s). Defaults to
+    /// [`CONNECT_TIMEOUT`].
+    connect_timeout: Duration,
     audio_tx: Option<mpsc::Sender<Outbound>>,
     event_rx: Option<mpsc::Receiver<TranslationEvent>>,
     task: Option<tokio::task::JoinHandle<()>>,
+    /// Frames dropped by [`send_audio`](TranslationProvider::send_audio)
+    /// because the outbound channel was full (background task stalled). Used
+    /// to rate-limit the drop warning; reset per `open()`.
+    dropped_frames: u64,
 }
 
 impl SonioxBYOK {
@@ -131,9 +151,11 @@ impl SonioxBYOK {
             endpoint: endpoint.to_string(),
             backoff_ms,
             context: String::new(),
+            connect_timeout: CONNECT_TIMEOUT,
             audio_tx: None,
             event_rx: None,
             task: None,
+            dropped_frames: 0,
         }
     }
 
@@ -142,6 +164,13 @@ impl SonioxBYOK {
     /// `SonioxBYOK::new().with_context(ctx)`. Blank strings are a no-op.
     pub fn with_context(mut self, context: String) -> Self {
         self.context = context;
+        self
+    }
+
+    /// Override the per-attempt connect ceiling (tests inject ~50 ms so a
+    /// stalled-connect assertion doesn't sit out the real [`CONNECT_TIMEOUT`]).
+    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = timeout;
         self
     }
 }
@@ -193,6 +222,8 @@ impl TranslationProvider for SonioxBYOK {
 
         let endpoint = self.endpoint.clone();
         let backoff_ms = self.backoff_ms;
+        let connect_timeout = self.connect_timeout;
+        self.dropped_frames = 0;
         // Mutable: a mid-session `Outbound::SetContext` reassigns this so the
         // NEXT `build_initial_config` call (on reconnect) carries the new value.
         let mut context = self.context.clone();
@@ -215,11 +246,22 @@ impl TranslationProvider for SonioxBYOK {
                     }
                 };
 
-                let ws = match connect_async(req).await {
-                    Ok((ws, _)) => ws,
+                // Bounded connect: a blackholed path (SYN dropped, TLS
+                // handshake stalled) must become an ordinary ladder rung, not
+                // an indefinite park during which no audio is drained and no
+                // events flow (the stuck-REC field incident's root cause).
+                let connected = match tokio::time::timeout(connect_timeout, connect_async(req))
+                    .await
+                {
+                    Ok(Ok((ws, _))) => Ok(ws),
+                    Ok(Err(e)) => Err(format!("connect: {e}")),
+                    Err(_) => Err(format!("connect: timed out after {connect_timeout:?}")),
+                };
+                let ws = match connected {
+                    Ok(ws) => ws,
                     Err(e) => {
                         if attempt > MAX_ATTEMPTS {
-                            fail_with(&event_tx, format!("connect: {e}")).await;
+                            fail_with(&event_tx, e).await;
                             return;
                         }
                         let wait = backoff_ms(attempt);
@@ -237,8 +279,15 @@ impl TranslationProvider for SonioxBYOK {
 
                 let (mut ws_tx, mut ws_rx) = ws.split();
                 let initial = build_initial_config(&cfg, &context).to_string();
-                if let Err(e) = ws_tx.send(Message::Text(initial)).await {
-                    tracing::warn!(?e, "send initial config; reconnecting");
+                let config_send =
+                    match tokio::time::timeout(WRITE_TIMEOUT, ws_tx.send(Message::Text(initial)))
+                        .await
+                    {
+                        Ok(r) => r.map_err(|e| e.to_string()),
+                        Err(_) => Err(format!("timed out after {WRITE_TIMEOUT:?}")),
+                    };
+                if let Err(e) = config_send {
+                    tracing::warn!(error = %e, "send initial config; reconnecting");
                     // A failed config send is NOT progress, so we do NOT reset
                     // `attempt`. Bound it like any other reconnect cause so an
                     // endpoint that accepts the handshake then refuses the
@@ -292,13 +341,30 @@ impl TranslationProvider for SonioxBYOK {
                             match out {
                                 Some(Outbound::Binary(b)) => {
                                     let bytes = b.len() as u64;
-                                    if let Err(e) = ws_tx.send(Message::Binary(b)).await {
-                                        tracing::warn!(?e, "send audio; reconnecting");
-                                        break 'inner;
+                                    match tokio::time::timeout(
+                                        WRITE_TIMEOUT,
+                                        ws_tx.send(Message::Binary(b)),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(())) => {
+                                            // Successful write: advance the watermark the
+                                            // audio-anchored latency is measured against.
+                                            audio_ms_sent += bytes / PCM_BYTES_PER_MS;
+                                        }
+                                        Ok(Err(e)) => {
+                                            tracing::warn!(?e, "send audio; reconnecting");
+                                            break 'inner;
+                                        }
+                                        Err(_) => {
+                                            // Half-dead socket: the peer stopped ACKing and
+                                            // the OS send buffer filled. Reconnect instead of
+                                            // parking for the OS retransmission timeout
+                                            // (10+ minutes of silent stall).
+                                            tracing::warn!("send audio timed out; reconnecting");
+                                            break 'inner;
+                                        }
                                     }
-                                    // Successful write: advance the watermark the
-                                    // audio-anchored latency is measured against.
-                                    audio_ms_sent += bytes / PCM_BYTES_PER_MS;
                                 }
                                 Some(Outbound::SetContext(new)) => {
                                     // Soniox only accepts `context` in the initial
@@ -313,10 +379,22 @@ impl TranslationProvider for SonioxBYOK {
                                     break 'inner;
                                 }
                                 None => {
-                                    // Caller dropped the audio sender (i.e., called close()).
+                                    // Caller dropped the audio sender (i.e., called eos()/close()).
                                     // Treat as client EOS: forward to server and stop polling audio.
-                                    let _ = ws_tx.send(Message::Text(String::new())).await;
+                                    // Bounded: on a wedged socket, break instead of parking — the
+                                    // post-loop `client_eos` path emits Stopped either way (a send
+                                    // *error* still falls through: the ws_rx arm surfaces it).
                                     client_eos = true;
+                                    if tokio::time::timeout(
+                                        WRITE_TIMEOUT,
+                                        ws_tx.send(Message::Text(String::new())),
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        tracing::warn!("send EOS timed out");
+                                        break 'inner;
+                                    }
                                 }
                             }
                         }
@@ -440,7 +518,9 @@ impl TranslationProvider for SonioxBYOK {
                     }
                 }
 
-                let _ = ws_tx.close().await;
+                // Bounded: close() on a socket that just write-timed-out would
+                // otherwise park the ladder on the same wedged connection.
+                let _ = tokio::time::timeout(Duration::from_secs(3), ws_tx.close()).await;
 
                 if finished {
                     let _ = event_tx.send(TranslationEvent::Stopped).await;
@@ -508,19 +588,50 @@ impl TranslationProvider for SonioxBYOK {
         let Some(tx) = self.audio_tx.as_ref() else {
             return Err(Error::Soniox("provider not open".into()));
         };
-        // Move the buffer straight into the outbound channel — no extra copy.
-        tx.send(Outbound::Binary(pcm))
-            .await
-            .map_err(|e| Error::Soniox(format!("audio channel closed: {e}")))
+        // Non-blocking by contract: the session worker calls this inline in
+        // its control loop, so awaiting a full channel would park the worker
+        // where its stop signal can't preempt it — the stuck-REC / frozen-
+        // transcript field incident. The channel only fills when the
+        // background task is stalled (connect/write timeout, backoff sleep);
+        // it already holds 6.4 s of audio, and during a stall newer frames
+        // are lost regardless — dropping them keeps latency bounded instead
+        // of replaying a stale backlog after recovery.
+        match tx.try_send(Outbound::Binary(pcm)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.dropped_frames += 1;
+                // Rate-limited: one line per ~5 s of dropped audio, not 10/s.
+                if self.dropped_frames % 50 == 1 {
+                    tracing::warn!(
+                        dropped = self.dropped_frames,
+                        "soniox outbound queue full; dropping audio (connection stalled)"
+                    );
+                }
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(Error::Soniox("audio channel closed".into()))
+            }
+        }
     }
 
     async fn set_context(&mut self, text: String) -> Result<()> {
         let Some(tx) = self.audio_tx.as_ref() else {
             return Err(Error::Soniox("provider not open".into()));
         };
-        tx.send(Outbound::SetContext(text))
-            .await
-            .map_err(|e| Error::Soniox(format!("audio channel closed: {e}")))
+        // try_send for the same reason as send_audio: never park the caller.
+        // Full means the connection is stalled and the switch couldn't reach
+        // the server anyway — surface an error (the session worker logs it
+        // and keeps the session alive; the user re-picks once reconnected).
+        match tx.try_send(Outbound::SetContext(text)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(Error::Soniox(
+                "outbound queue full (connection stalled); context not applied".into(),
+            )),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(Error::Soniox("audio channel closed".into()))
+            }
+        }
     }
 
     async fn next_event(&mut self) -> Option<TranslationEvent> {

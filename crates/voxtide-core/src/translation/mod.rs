@@ -91,6 +91,13 @@ pub trait TranslationProvider: Send {
     /// Send one PCM chunk to the provider. Takes ownership of the buffer so the
     /// implementation can move it straight into its outbound channel / wire
     /// frame without re-copying (the call site already builds an owned `Vec`).
+    ///
+    /// MUST return promptly — never await network progress or a full queue.
+    /// The session worker calls this inline in its select-loop arm body, where
+    /// a parked await starves the stop signal and the event drain: the session
+    /// becomes unstoppable and the transcript freezes (the 2026-07 stuck-REC
+    /// incident). Under backpressure, drop the frame (it's real-time audio;
+    /// buffering it past a few seconds only adds latency) and return `Ok`.
     async fn send_audio(&mut self, pcm: Vec<u8>) -> Result<()>;
     /// Switch the active recognition/translation context mid-session. Default
     /// is a no-op so providers without a reconnect-based context mechanism (and
