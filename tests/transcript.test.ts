@@ -169,6 +169,73 @@ describe('TranscriptPane follow-tail', () => {
     expect(left!.scrollTop).toBe(1200); // still following → snapped to new bottom
   });
 
+  it('re-engages follow-tail when the transcript resets (new session)', async () => {
+    // Regression: `follow` survived across sessions because the live pane is
+    // not remounted — scroll up once, start a NEW session, and auto-scroll
+    // was dead from the first word until a manual scroll to the bottom.
+    const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
+    const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
+    geom(left!, 1000); geom(right!, 500);
+
+    // User scrolls away from the bottom → disengage.
+    left!.scrollTop = 500;
+    left!.dispatchEvent(new Event('scroll'));
+
+    // Session reset: both transcripts empty (store.reset on start).
+    await rerender({ ...baseProps(0), translation: [] });
+    // New session content arrives — a fresh transcript must follow its tail.
+    await rerender(baseProps(21));
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000);
+  });
+
+  it('re-engaging at one column snaps the OTHER to its own bottom immediately', async () => {
+    // Regression: re-engaging via the short column merely mirrored its pixel
+    // offset onto the tall column (mid-history) and nothing corrected it until
+    // the NEXT growth — seconds of "auto-scroll still broken" in a silence.
+    const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
+    const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
+    geom(left!, 1000); geom(right!, 500);
+    await rerender(baseProps(21));
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000); // engaged
+
+    // Disengage from the tall column.
+    left!.scrollTop = 300;
+    left!.dispatchEvent(new Event('scroll'));
+    right!.dispatchEvent(new Event('scroll')); // mirror echo, consumed
+
+    // User returns to the SHORT column's bottom → re-engage. Both columns
+    // must snap to their own bottoms now, not wait for the next token.
+    right!.scrollTop = 480; // 480+100 >= 500-32
+    right!.dispatchEvent(new Event('scroll'));
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000);
+    expect(right!.scrollTop).toBe(500);
+  });
+
+  it('shows a Jump-to-latest pill while disengaged; clicking it re-engages', async () => {
+    // Re-engaging by scroll is a moving-target game (the bottom recedes every
+    // ~100 ms while captions stream); the pill is the deterministic resume.
+    const { container, queryByText, getByText, rerender } = render(TranscriptPane, { props: baseProps(20) });
+    const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];
+    geom(left!, 1000); geom(right!, 500);
+    await rerender(baseProps(21));
+    await raf(); await raf();
+    expect(queryByText(/Jump to latest/)).toBeNull(); // following → no pill
+
+    left!.scrollTop = 300;
+    left!.dispatchEvent(new Event('scroll'));
+    await raf();
+    const pill = getByText(/Jump to latest/); // disengaged → pill visible
+
+    await fireEvent.click(pill);
+    await raf(); await raf();
+    expect(left!.scrollTop).toBe(1000);
+    expect(right!.scrollTop).toBe(500);
+    await waitFor(() => expect(queryByText(/Jump to latest/)).toBeNull());
+  });
+
   it('re-engages from the right column; mirror echoes never override the user column', async () => {
     const { container, rerender } = render(TranscriptPane, { props: baseProps(20) });
     const [left, right] = Array.from(container.querySelectorAll('.overflow-auto')) as HTMLElement[];

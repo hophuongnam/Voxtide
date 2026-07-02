@@ -50,7 +50,9 @@
 
   let leftEl: HTMLElement | null = $state(null);
   let rightEl: HTMLElement | null = $state(null);
-  let follow = true;
+  // $state: drives the Jump-to-latest pill, and makes the follow-tail effect
+  // re-run on re-engage (snap immediately, not on the next token).
+  let follow = $state(true);
   const NEAR_BOTTOM_PX = 32;
 
   // Echo suppression is value-based, not timing-based. Every programmatic
@@ -83,7 +85,11 @@
     const handler = (self: HTMLElement, other: HTMLElement) => () => {
       if (isEcho(self)) return;
       follow = nearBottom(self);
-      setScroll(other, self.scrollTop);
+      // Browsing history mirrors the columns pixel-for-pixel; re-engaging
+      // hands BOTH columns to the follow-tail effect instead (a mirror here
+      // would strand the other, differently-tall column at this column's
+      // offset until the next token happened to arrive).
+      if (!follow) setScroll(other, self.scrollTop);
     };
     const onL = handler(l, r), onR = handler(r, l);
     l.addEventListener('scroll', onL, { passive: true });
@@ -97,9 +103,15 @@
   // Follow-tail: when transcript grows AND the user is still following, snap
   // both columns to their own bottoms. Reads content lengths so Svelte re-runs
   // this on any growth; one rAF lets layout settle so scrollHeight is final.
+  // Also re-runs when `follow` flips true (re-engage/pill) so the snap is
+  // immediate rather than deferred to the next token.
   $effect(() => {
-    original.length; translation.length;
-    liveOriginal.length; liveTranslation.length;
+    // An empty transcript is a new/reset session: always follow its tail.
+    // `follow` otherwise survives the reset (the live pane is not remounted
+    // between sessions), leaving auto-scroll dead from the first word.
+    if (original.length + translation.length + liveOriginal.length + liveTranslation.length === 0) {
+      follow = true;
+    }
     if (!follow || !leftEl || !rightEl) return;
     const l = leftEl, r = rightEl;
     requestAnimationFrame(() => {
@@ -110,7 +122,7 @@
   });
 </script>
 
-<div class="flex-1 flex overflow-hidden" data-testid="transcript-root"
+<div class="flex-1 flex overflow-hidden relative" data-testid="transcript-root"
      style:--vt-transcript-size={FONT_PX[fontSize]}>
   <Column label="Original" code={originalCode} sub={mode === 'meeting' ? 'diarized' : 'per turn'}
           bodyRef={(el) => leftEl = el} cfg={cfg} onconfigchange={onconfigchange}>
@@ -137,4 +149,16 @@
                     language: liveTranslationLang ?? b.code.toLowerCase(), chip: null, live: true }} {showPinyin} translated />
     {/if}
   </Column>
+  <!-- Deterministic resume: re-engaging by scroll means landing within 32px of
+       a bottom that recedes with every token — a moving-target game that
+       "sometimes" fails. The pill both signals that follow-tail is off and
+       re-engages it in one click (the effect above snaps on follow=true). -->
+  {#if !follow}
+    <button class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-medium shadow-md cursor-pointer"
+            style:background="var(--vt-accent)" style:color="var(--vt-bg)"
+            style:border="0.5px solid var(--vt-accent-tint-25)"
+            onclick={() => (follow = true)}>
+      Jump to latest ↓
+    </button>
+  {/if}
 </div>
