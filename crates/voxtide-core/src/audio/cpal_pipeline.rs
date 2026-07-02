@@ -303,11 +303,21 @@ pub(crate) fn start_capture(spec: CpalCaptureSpec) -> Result<AudioStream> {
                 }
             }
 
-            // Dropping `stream` here stops the capture and drops the data
-            // callback's pipeline (with its `tx` clone). The original `tx` in
-            // this thread scope drops when the closure returns just below, so
-            // once both are gone the frame channel closes and the session
-            // worker's audio arm sees `None`.
+            // Stop BEFORE drop — `drop(stream)` alone does not stop capture on
+            // macOS: cpal 0.15.3 registers a device-disconnect listener for
+            // every non-default device (exactly the ones a user picks in the
+            // device dropdown) whose closure clones the stream's Arc and is
+            // stored inside the stream itself — an Arc cycle, so Drop never
+            // reaches AudioUnit stop/dispose and the OS keeps the mic hot
+            // (orange indicator) until the process exits. `pause()` calls
+            // AudioOutputUnitStop directly, releasing the device regardless of
+            // the cycle; on the device-lost exit path it fails harmlessly.
+            // Dropping the stream then drops the data callback's pipeline
+            // (with its `tx` clone); the original `tx` in this thread scope
+            // drops when the closure returns just below, so once both are gone
+            // the frame channel closes and the session worker's audio arm sees
+            // `None`.
+            let _ = stream.pause();
             drop(stream);
         })
         .map_err(|e| Error::Audio(format!("{label} thread spawn: {e}")))?;
