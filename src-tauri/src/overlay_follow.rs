@@ -63,7 +63,9 @@ pub fn register(overlay: &tauri::WebviewWindow) {
     };
     let block = RcBlock::new(move |_: core::ptr::NonNull<NSTimer>| {
         // Scheduled from setup on the main run loop → main-thread ticks.
-        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
         // Left button down = the user may be dragging the overlay (or is
         // mid-interaction elsewhere); never move the frame under a drag.
         if NSEvent::pressedMouseButtons() & 1 != 0 {

@@ -250,13 +250,12 @@ impl TranslationProvider for SonioxBYOK {
                 // handshake stalled) must become an ordinary ladder rung, not
                 // an indefinite park during which no audio is drained and no
                 // events flow (the stuck-REC field incident's root cause).
-                let connected = match tokio::time::timeout(connect_timeout, connect_async(req))
-                    .await
-                {
-                    Ok(Ok((ws, _))) => Ok(ws),
-                    Ok(Err(e)) => Err(format!("connect: {e}")),
-                    Err(_) => Err(format!("connect: timed out after {connect_timeout:?}")),
-                };
+                let connected =
+                    match tokio::time::timeout(connect_timeout, connect_async(req)).await {
+                        Ok(Ok((ws, _))) => Ok(ws),
+                        Ok(Err(e)) => Err(format!("connect: {e}")),
+                        Err(_) => Err(format!("connect: timed out after {connect_timeout:?}")),
+                    };
                 let ws = match connected {
                     Ok(ws) => ws,
                     Err(e) => {

@@ -2,10 +2,10 @@ use tauri::Manager;
 
 mod commands;
 mod events;
-#[cfg(target_os = "macos")]
-mod overlay_follow;
 #[cfg(desktop)]
 mod hotkey;
+#[cfg(target_os = "macos")]
+mod overlay_follow;
 mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
