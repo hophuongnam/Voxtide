@@ -68,7 +68,18 @@
   function handle(ev: CoreEvent) {
     switch (ev.kind) {
       case 'session-started': recording = true; conn = { state: 'active', attempt: null, retry_in_ms: null }; break;
-      case 'session-stopped': recording = false; conn = { state: 'idle', attempt: null, retry_in_ms: null }; transcript.clearLive(); break;
+      case 'session-stopped':
+        recording = false;
+        conn = { state: 'idle', attempt: null, retry_in_ms: null };
+        transcript.clearLive();
+        // The session can end WITHOUT a Stop tap (provider reconnect ladder
+        // gives up during network trouble): release the mic + wake lock here,
+        // or the mic stays hot and the screen stays awake until the app is
+        // killed — and the next Record would overwrite the live MediaStream
+        // in miccapture.ts without stopping it. Idempotent after a user stop.
+        stopMicCapture();
+        mic = null;
+        break;
       case 'transcript-live':
         events++;
         transcript.live({ status: ev.status, text: ev.text, language: ev.language, chip: ev.chip });

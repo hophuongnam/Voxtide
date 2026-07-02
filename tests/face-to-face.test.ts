@@ -21,7 +21,7 @@ const { invokeMock, listenMock, startMicCaptureMock, stopMicCaptureMock } = vi.h
     if (cmd === 'list_sessions') return [];
     return null;
   }),
-  listenMock: vi.fn(async () => () => {}),
+  listenMock: vi.fn(async (..._args: unknown[]) => () => {}),
   startMicCaptureMock: vi.fn(async (onStats?: (s: unknown) => void) => {
     onStats?.({ state: 'running', sampleRate: 16000, batches: 1 });
   }),
@@ -72,6 +72,31 @@ describe('FaceToFaceView Android recording flow', () => {
     await fireEvent.click(getByRole('button', { name: 'Record' }));
 
     await waitFor(() => expect(order).toEqual(['mic', 'session']));
+  });
+
+  it('releases the WebView mic when the session self-terminates', async () => {
+    (window as any).__TAURI_INTERNALS__ = {};
+    let coreHandler: ((e: { payload: unknown }) => void) | undefined;
+    listenMock.mockImplementationOnce(async (...args: unknown[]) => {
+      coreHandler = args[1] as (e: { payload: unknown }) => void;
+      return () => {};
+    });
+
+    const { getByRole } = render(FaceToFaceView);
+    await waitFor(() => expect(getByRole('button', { name: 'Record' })).toBeInTheDocument());
+    await fireEvent.click(getByRole('button', { name: 'Record' }));
+    await waitFor(() => expect(startMicCaptureMock).toHaveBeenCalled());
+    await waitFor(() => expect(coreHandler).toBeDefined());
+
+    // Backend confirms the session, then ends it WITHOUT a Stop tap — e.g.
+    // the Soniox reconnect ladder gave up during a network stall.
+    coreHandler!({ payload: { kind: 'session-started', session_id: 7, mode: 'conversation' } });
+    coreHandler!({ payload: { kind: 'session-stopped', session_id: 7, duration_ms: 1000 } });
+
+    // The view must release the mic + wake lock itself: no user Stop is
+    // coming, and a hot mic / awake screen would otherwise persist until
+    // the app is killed (next Record would also leak the live stream).
+    await waitFor(() => expect(stopMicCaptureMock).toHaveBeenCalled());
   });
 
   it('stops mic capture and the backend session on Android lifecycle stop', async () => {
