@@ -2,6 +2,8 @@ use tauri::Manager;
 
 mod commands;
 mod events;
+#[cfg(target_os = "macos")]
+mod overlay_follow;
 #[cfg(desktop)]
 mod hotkey;
 mod state;
@@ -137,17 +139,23 @@ pub fn run() {
                 // need FullScreenAuxiliary, which tauri/tao never set. OR it
                 // in (read-modify-write preserves CanJoinAllSpaces).
                 #[cfg(target_os = "macos")]
-                if let Ok(ptr) = overlay.ns_window() {
-                    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
-                    // SAFETY: ptr is the live NSWindow of the window built
-                    // above; setup runs on the main thread, as AppKit requires.
-                    unsafe {
-                        let ns = &*ptr.cast::<NSWindow>();
-                        ns.setCollectionBehavior(
-                            ns.collectionBehavior()
-                                | NSWindowCollectionBehavior::FullScreenAuxiliary,
-                        );
+                {
+                    if let Ok(ptr) = overlay.ns_window() {
+                        use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+                        // SAFETY: ptr is the live NSWindow of the window built
+                        // above; setup runs on the main thread, as AppKit requires.
+                        unsafe {
+                            let ns = &*ptr.cast::<NSWindow>();
+                            ns.setCollectionBehavior(
+                                ns.collectionBehavior()
+                                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
+                            );
+                        }
                     }
+                    // Those flags only cover Spaces on the overlay's own
+                    // display; follow the cursor's screen so captions reach
+                    // fullscreen apps on OTHER monitors too.
+                    overlay_follow::register(&overlay);
                 }
                 #[cfg(not(target_os = "macos"))]
                 let _ = overlay;

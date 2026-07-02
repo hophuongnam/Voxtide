@@ -5537,8 +5537,11 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "voxtide"
 version = "0.1.18"
 dependencies = [
+ "block2",
  "dirs 5.0.1",
+ "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",

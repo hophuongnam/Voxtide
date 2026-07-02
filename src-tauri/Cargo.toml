@@ -31,9 +31,18 @@ tauri-plugin-window-state = "2"
 dirs = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Already in the graph via tao; direct dep only to OR FullScreenAuxiliary
-# into the overlay's collection behavior (tauri doesn't expose it).
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSResponder"] }
+# All already in the graph via tao; direct deps only for the overlay's
+# FullScreenAuxiliary flag and the follow-focused-screen observer
+# (overlay_follow.rs) — tauri exposes neither.
+objc2-app-kit = { version = "0.3", features = [
+    "NSWindow",
+    "NSResponder",
+    "NSScreen",
+    "NSEvent",
+] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSTimer", "NSGeometry"] }
+block2 = "0.6"
 
 [dev-dependencies]
 tokio = { workspace = true }
