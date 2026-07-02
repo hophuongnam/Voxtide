@@ -2,14 +2,20 @@ use voxtide_core::persistence::sessions::{NewSession, Sessions};
 use voxtide_core::persistence::tokens::{NewToken, Tokens};
 use voxtide_core::persistence::Store;
 
-async fn open_store() -> Store {
+/// Returns the `TempDir` guard alongside the store: dropping it deletes the
+/// directory while the pool still points into it, and any LATER lazily-opened
+/// pool connection (or SQLite journal file) then fails with "unable to open
+/// database file" — a parallelism-dependent flake, not a persistence bug.
+/// Same contract as `persistence_sessions.rs`'s helper.
+async fn open_store() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    Store::open(&dir.path().join("v.db")).await.unwrap()
+    let store = Store::open(&dir.path().join("v.db")).await.unwrap();
+    (store, dir)
 }
 
 #[tokio::test]
 async fn insert_token_and_search_finds_match() {
-    let s = open_store().await;
+    let (s, _dir) = open_store().await;
     let session_id = Sessions::create(
         s.pool(),
         NewSession {
@@ -64,7 +70,7 @@ async fn insert_token_and_search_finds_match() {
 
 #[tokio::test]
 async fn deleting_session_cascades_to_tokens_and_fts() {
-    let s = open_store().await;
+    let (s, _dir) = open_store().await;
     let session_id = Sessions::create(
         s.pool(),
         NewSession {
@@ -107,7 +113,7 @@ async fn deleting_session_cascades_to_tokens_and_fts() {
 
 #[tokio::test]
 async fn search_sessions_finds_rows_beyond_any_cache_and_dedupes() {
-    let s = open_store().await;
+    let (s, _dir) = open_store().await;
     let mk = |started_at: i64| NewSession {
         started_at,
         mode: "meeting".into(),
@@ -162,7 +168,7 @@ async fn search_sessions_finds_rows_beyond_any_cache_and_dedupes() {
 
 #[tokio::test]
 async fn insert_many_lands_the_whole_batch() {
-    let s = open_store().await;
+    let (s, _dir) = open_store().await;
     let session_id = Sessions::create(
         s.pool(),
         NewSession {
@@ -227,7 +233,7 @@ async fn insert_many_lands_the_whole_batch() {
 
 #[tokio::test]
 async fn break_rows_round_trip_in_order() {
-    let s = open_store().await;
+    let (s, _dir) = open_store().await;
     let session_id = Sessions::create(
         s.pool(),
         NewSession {
